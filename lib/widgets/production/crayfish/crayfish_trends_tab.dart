@@ -100,12 +100,14 @@ class _TrendsTabState extends State<TrendsTab> {
       ..sort((a, b) => a.date.compareTo(b.date));
 
     final data = <double>[
-      _activeMetric == 'ABW' ? service.initialWeight : service.initialLength,
-      ...samples.map((e) => _activeMetric == 'ABW' ? e.abw : e.avgLength),
+      _activeMetric == 'ABW'
+          ? service.initialWeight
+          : service.initialLengthInches,
+      ...samples.map((e) => _activeMetric == 'ABW' ? e.abw : e.avgLengthInches),
     ];
     final dates = <DateTime>[service.stockingDate, ...samples.map((e) => e.date)];
 
-    final unit = _activeMetric == 'ABW' ? 'g' : 'cm';
+    final unit = _activeMetric == 'ABW' ? 'g' : 'in';
     final isAbw = _activeMetric == 'ABW';
     final lineColor = isAbw ? AppColors.primary : const Color(0xFFf59e0b);
     final labels = <String>['Initial', ...samples.map((e) => _formatTrendDate(e.date))];

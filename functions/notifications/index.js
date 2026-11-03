@@ -28,6 +28,7 @@ const UNITS = {
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const TRUSTED_EPOCH_MS = 1577836800000;
+const PUSH_NOTIFICATIONS_ENABLED = true;
 // Keep connection alerts consistent with the app's sensor freshness window.
 const SENSOR_STALE_MS = 60 * 1000;
 
@@ -86,6 +87,10 @@ async function removeStaleToken(uid, token) {
 }
 
 async function sendPush(uid, payload, prefsCheck) {
+  if (!PUSH_NOTIFICATIONS_ENABLED) {
+    functions.logger.info("Push delivery is temporarily paused.");
+    return;
+  }
   try {
     const prefs = await getUserPreferences(uid);
     if (prefsCheck && prefs[prefsCheck] === false) return;

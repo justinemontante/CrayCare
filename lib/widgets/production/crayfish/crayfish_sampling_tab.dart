@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../theme/app_colors.dart';
 import '../../../services/tank_service.dart';
+import '../../../utils/length_units.dart';
 import '../../../utils/snackbar_helper.dart';
 
 class _SamplingMeasurementsTable extends StatelessWidget {
@@ -78,16 +79,16 @@ class _SamplingMeasurementsTable extends StatelessWidget {
       0,
       (total, item) => total + item.weightGrams,
     );
-    final totalLength = measurements.fold<double>(
+    final totalLengthInches = measurements.fold<double>(
       0,
-      (total, item) => total + item.lengthCm,
+      (total, item) => total + item.lengthInches,
     );
     final averageWeight = measurements.isEmpty
         ? 0.0
         : totalWeight / measurements.length;
     final averageLength = measurements.isEmpty
         ? 0.0
-        : totalLength / measurements.length;
+        : totalLengthInches / measurements.length;
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Container(
@@ -130,7 +131,7 @@ class _SamplingMeasurementsTable extends StatelessWidget {
                   Expanded(
                     flex: 2,
                     child: Text(
-                      'Length (cm)',
+                      'Length (in)',
                       textAlign: TextAlign.right,
                       style: TextStyle(
                         fontSize: 10,
@@ -184,7 +185,7 @@ class _SamplingMeasurementsTable extends StatelessWidget {
                         Expanded(
                           flex: 2,
                           child: Text(
-                            item.lengthCm.toStringAsFixed(2),
+                            item.lengthInches.toStringAsFixed(2),
                             textAlign: TextAlign.right,
                             style: const TextStyle(
                               fontSize: 10,
@@ -201,7 +202,7 @@ class _SamplingMeasurementsTable extends StatelessWidget {
             _summaryRow(
               'Total',
               totalWeight,
-              totalLength,
+              totalLengthInches,
               backgroundColor: AppColors.dark.withValues(alpha: 0.02),
               labelColor: AppColors.primary,
             ),
@@ -491,7 +492,7 @@ void showSamplingHistory(BuildContext context, {bool expandBaseline = false}) {
                                 ),
                               ),
                               subtitle: Text(
-                                '$date  •  ${entry.sampleSize} sampled\nABW ${entry.abw.toStringAsFixed(2)} g  •  ABL ${entry.avgLength.toStringAsFixed(2)} cm',
+                                '$date  •  ${entry.sampleSize} sampled\nABW ${entry.abw.toStringAsFixed(2)} g  •  ABL ${entry.avgLengthInches.toStringAsFixed(2)} in',
                                 style: TextStyle(
                                   fontSize: 10,
                                   height: 1.4,
@@ -880,10 +881,10 @@ class GrowthOverviewPanel extends StatelessWidget {
         ? history.lastWhere((e) => !e.isBaseline)
         : null;
     final initialW = service.initialWeight;
-    final initialL = service.initialLength;
+    final initialL = service.initialLengthInches;
 
     final latestW = latest?.abw ?? initialW;
-    final latestL = latest?.avgLength ?? initialL;
+    final latestL = latest?.avgLengthInches ?? initialL;
 
     final diffW = latestW - initialW;
     final diffL = latestL - initialL;
@@ -928,7 +929,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                   () => _showModal(
                     context,
                     'Initial Baseline',
-                    'ABW: ${initialW.toStringAsFixed(2)} g  |  ABL: ${initialL.toStringAsFixed(2)} cm',
+                    'ABW: ${initialW.toStringAsFixed(2)} g  |  ABL: ${initialL.toStringAsFixed(2)} in',
                     'Stocked on ${_formatDate(service.stockingDate)}',
                     Icons.calendar_today_outlined,
                     const Color(0xFF0891B2),
@@ -947,7 +948,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                         () => _showModal(
                           context,
                           'Latest Sampling',
-                          'ABW: ${latestW.toStringAsFixed(2)} g  |  ABL: ${latestL.toStringAsFixed(2)} cm',
+                          'ABW: ${latestW.toStringAsFixed(2)} g  |  ABL: ${latestL.toStringAsFixed(2)} in',
                           'Recorded on ${_formatDate(latest.date)}',
                           Icons.science_outlined,
                           const Color(0xFF0F766E),
@@ -977,7 +978,7 @@ class GrowthOverviewPanel extends StatelessWidget {
             () => _showModal(
               context,
               'Growth Change',
-              'Weight: ${diffW >= 0 ? "+" : ""}${diffW.toStringAsFixed(2)} g  |  Length: ${diffL >= 0 ? "+" : ""}${diffL.toStringAsFixed(2)} cm',
+              'Weight: ${diffW >= 0 ? "+" : ""}${diffW.toStringAsFixed(2)} g  |  Length: ${diffL >= 0 ? "+" : ""}${diffL.toStringAsFixed(2)} in',
               'Total Gain since Stocking',
               Icons.trending_up_rounded,
               AppColors.primary,
@@ -1119,7 +1120,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                '${length.toStringAsFixed(2)} cm',
+                                '${length.toStringAsFixed(2)} in',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 10,
@@ -1287,7 +1288,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                     children: [
                       _buildGrowthMetric(
                         'Weight Gain',
-                        '${isPosW ? '+' : ''}${weight.toStringAsFixed(1)}g',
+                        '${isPosW ? '+' : ''}${weight.toStringAsFixed(2)}g',
                         isPosW,
                       ),
                       const SizedBox(width: 10),
@@ -1295,7 +1296,7 @@ class GrowthOverviewPanel extends StatelessWidget {
                       const SizedBox(width: 10),
                       _buildGrowthMetric(
                         'Length Gain',
-                        '${isPosL ? '+' : ''}${length.toStringAsFixed(1)}cm',
+                        '${isPosL ? '+' : ''}${length.toStringAsFixed(2)} in',
                         isPosL,
                       ),
                     ],
@@ -1671,7 +1672,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     _resizeMeasurementControllers(measurements.length);
     for (var i = 0; i < measurements.length; i++) {
       _weightControllers[i].text = measurements[i].weightGrams.toString();
-      _lengthControllers[i].text = measurements[i].lengthCm.toString();
+      _lengthControllers[i].text = measurements[i].lengthInches.toString();
     }
     _refreshFieldErrors();
   }
@@ -1702,6 +1703,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
     if (expectedCount <= 0 || draft['sampleSize'] != expectedCount) return;
     final weights = draft['weights'];
     final lengths = draft['lengths'];
+    final draftLengthsAreInches = draft['lengthUnit'] == 'inches';
     if (weights is! List || lengths is! List) return;
 
     _countController.text = expectedCount.toString();
@@ -1711,7 +1713,9 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
           ? weights[i]?.toString() ?? ''
           : '';
       _lengthControllers[i].text = i < lengths.length
-          ? lengths[i]?.toString() ?? ''
+          ? draftLengthsAreInches
+                ? lengths[i]?.toString() ?? ''
+                : legacyCentimeterLengthTextToInches(lengths[i])
           : '';
     }
     _hasUnsavedChanges = true;
@@ -1770,6 +1774,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
       return Future<void>.value();
     }
     final payload = jsonEncode({
+      'lengthUnit': 'inches',
       'sampleSize': int.tryParse(_countController.text),
       'weights': _weightControllers
           .map((controller) => controller.text)
@@ -2057,7 +2062,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
           (index) => CrayfishMeasurement(
             sampleNumber: index + 1,
             weightGrams: double.parse(_weightControllers[index].text),
-            lengthCm: double.parse(_lengthControllers[index].text),
+            lengthInches: double.parse(_lengthControllers[index].text),
           ),
         );
         if (wasEditing) {
@@ -2163,8 +2168,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
           ),
           Expanded(
             child: SingleChildScrollView(
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.manual,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
               padding: const EdgeInsets.only(bottom: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2229,7 +2233,7 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
                                 SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Length (cm)',
+                                    'Length (in)',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 9,
@@ -2247,10 +2251,10 @@ class _SamplingFormPanelState extends State<SamplingFormPanel>
                             itemCount: _weightControllers.length,
                             itemBuilder: (context, index) =>
                                 _buildMeasurementRow(
-                              index,
-                              enabled: (!_isRecorded && canSample) ||
-                                  _isEditing,
-                            ),
+                                  index,
+                                  enabled:
+                                      (!_isRecorded && canSample) || _isEditing,
+                                ),
                           ),
                         ],
                       ),
@@ -2539,7 +2543,7 @@ class SamplingHistoryPanel extends StatelessWidget {
         title: 'Week 0 (Baseline)',
         dateLabel: _formatDate(service.stockingDate),
         abw: service.initialWeight,
-        abl: service.initialLength,
+        abl: service.initialLengthInches,
         sampleSize: service.sampleCount,
         measurements: baseline?.measurements ?? const [],
         icon: Image.asset(
@@ -2553,18 +2557,18 @@ class SamplingHistoryPanel extends StatelessWidget {
       final entry = allHistory[i];
       final prevAbw = i == 0 ? service.initialWeight : allHistory[i - 1].abw;
       final prevAbl = i == 0
-          ? service.initialLength
-          : allHistory[i - 1].avgLength;
+          ? service.initialLengthInches
+          : allHistory[i - 1].avgLengthInches;
       entries.add(
         _HistoryEntry(
           title: 'Week ${i + 1}',
           dateLabel: _formatDate(entry.date),
           abw: entry.abw,
-          abl: entry.avgLength,
+          abl: entry.avgLengthInches,
           sampleSize: entry.sampleSize,
           measurements: entry.measurements,
           gainW: entry.abw - prevAbw,
-          gainL: entry.avgLength - prevAbl,
+          gainL: entry.avgLengthInches - prevAbl,
           icon: const Icon(
             Icons.biotech_rounded,
             size: 18,
@@ -2781,7 +2785,7 @@ class SamplingHistoryPanel extends StatelessWidget {
               Expanded(
                 child: _buildDetailBadge(
                   'ABL',
-                  '${abl.toStringAsFixed(2)} cm',
+                  '${abl.toStringAsFixed(2)} in',
                   AppColors.primary,
                 ),
               ),
@@ -2828,7 +2832,7 @@ class SamplingHistoryPanel extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Length gain: ${gainL >= 0 ? "+" : ""}${gainL.toStringAsFixed(2)} cm',
+                    'Length gain: ${gainL >= 0 ? "+" : ""}${gainL.toStringAsFixed(2)} in',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
@@ -2891,7 +2895,7 @@ class SamplingHistoryPanel extends StatelessWidget {
       title: 'Initial Baseline',
       dateLabel: _formatDate(baseline?.date ?? service.stockingDate),
       abw: baseline?.abw ?? service.initialWeight,
-      abl: baseline?.avgLength ?? service.initialLength,
+      abl: baseline?.avgLengthInches ?? service.initialLengthInches,
       sampleSize: baseline?.sampleSize ?? service.sampleCount,
       measurements: baseline?.measurements ?? const [],
       isLatest: false,
@@ -2922,14 +2926,14 @@ class SamplingHistoryPanel extends StatelessWidget {
             ? service.initialWeight
             : weeklyHistory[prevIdx].abw;
         final prevAbl = prevIdx < 0
-            ? service.initialLength
-            : weeklyHistory[prevIdx].avgLength;
+            ? service.initialLengthInches
+            : weeklyHistory[prevIdx].avgLengthInches;
 
         return _buildHistoryCard(
           title: 'Week ${idxInHistory + 1}',
           dateLabel: _formatDate(entry.date),
           abw: entry.abw,
-          abl: entry.avgLength,
+          abl: entry.avgLengthInches,
           sampleSize: entry.sampleSize,
           measurements: entry.measurements,
           isLatest: idxInRecent == 0,
@@ -2939,7 +2943,7 @@ class SamplingHistoryPanel extends StatelessWidget {
             color: AppColors.primary,
           ),
           gainW: entry.abw - prevAbw,
-          gainL: entry.avgLength - prevAbl,
+          gainL: entry.avgLengthInches - prevAbl,
           alternateTint: idxInRecent.isOdd,
         );
       }),

@@ -133,9 +133,9 @@ class ReportExportService {
     'Week',
     'Date',
     'Sample Size',
-    'Sample Total Length (cm)',
+    'Sample Total Length (in)',
     'Sample Total Weight (g)',
-    'Avg Length (cm)',
+    'Avg Length (in)',
     'Avg Weight (g)',
     'Est. Biomass (g)',
     'In-Tank Count',
@@ -154,9 +154,9 @@ class ReportExportService {
         samplingPeriod(s, stockingDate),
         _fmtDate(s.date),
         '${s.sampleSize}',
-        s.totalLength.toStringAsFixed(2),
+        s.totalLengthInches.toStringAsFixed(2),
         s.totalWeight.toStringAsFixed(2),
-        s.avgLength.toStringAsFixed(2),
+        s.avgLengthInches.toStringAsFixed(2),
         s.abw.toStringAsFixed(2),
         s.biomass.toStringAsFixed(2),
         '${s.liveCount}',
@@ -202,7 +202,9 @@ class ReportExportService {
     buf.writeln(_row(['Days in Culture', t.daysInCulture]));
     buf.writeln(_row(['Initial Population', t.initialCount]));
     buf.writeln(_row(['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)]));
-    buf.writeln(_row(['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)]));
+    buf.writeln(
+      _row(['Initial ABL (in)', t.initialLengthInches.toStringAsFixed(2)]),
+    );
     buf.writeln(_row(['Surviving Count (including harvested)', t.liveCount]));
     buf.writeln(_row(['Current In-Tank Count', t.inTankCount]));
     buf.writeln(_row(['Total Mortality', t.totalMortalityFromHistory]));
@@ -226,13 +228,13 @@ class ReportExportService {
         for (final entry in samples) {
           if (entry.measurements.isEmpty) continue;
           buf.writeln(_row([samplingGroupTitle(entry, t.stockingDate)]));
-          buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (cm)']));
+          buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (in)']));
           for (final measurement in entry.measurements) {
             buf.write(
               _row([
                 measurement.sampleNumber,
                 measurement.weightGrams.toStringAsFixed(2),
-                measurement.lengthCm.toStringAsFixed(2),
+                measurement.lengthInches.toStringAsFixed(2),
               ]),
             );
           }
@@ -364,7 +366,7 @@ class ReportExportService {
           'Total Harvested',
           'Survival Rate (%)',
           'Final ABW (g)',
-          'Final ABL (cm)',
+          'Final ABL (in)',
         ]),
       );
       for (final snapshot in ordered) {
@@ -381,7 +383,8 @@ class ReportExportService {
             _snapshotHarvested(snapshot),
             _snapshotSurvivalRate(snapshot).toStringAsFixed(2),
             (latest?.abw ?? snapshot.batch.finalAbw).toStringAsFixed(2),
-            (latest?.avgLength ?? snapshot.batch.finalAbl).toStringAsFixed(2),
+            (latest?.avgLengthInches ?? snapshot.batch.finalAblInches)
+                .toStringAsFixed(2),
           ]),
         );
       }
@@ -423,13 +426,13 @@ class ReportExportService {
           for (final entry in snapshot.sampling) {
             if (entry.measurements.isEmpty) continue;
             buf.writeln(_row([samplingGroupTitle(entry, batch.stockingDate)]));
-            buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (cm)']));
+            buf.write(_row(['Crayfish No.', 'Weight (g)', 'Length (in)']));
             for (final measurement in entry.measurements) {
               buf.write(
                 _row([
                   measurement.sampleNumber,
                   measurement.weightGrams.toStringAsFixed(2),
-                  measurement.lengthCm.toStringAsFixed(2),
+                  measurement.lengthInches.toStringAsFixed(2),
                 ]),
               );
             }
@@ -612,7 +615,7 @@ class ReportExportService {
           'Total Harvested',
           'Survival Rate (%)',
           'Final ABW (g)',
-          'Final ABL (cm)',
+          'Final ABL (in)',
         ],
         rows: ordered.map((snapshot) {
           final latest = _latestSampling(snapshot);
@@ -627,7 +630,8 @@ class ReportExportService {
             _snapshotHarvested(snapshot),
             _snapshotSurvivalRate(snapshot).toStringAsFixed(2),
             (latest?.abw ?? snapshot.batch.finalAbw).toStringAsFixed(2),
-            (latest?.avgLength ?? snapshot.batch.finalAbl).toStringAsFixed(2),
+            (latest?.avgLengthInches ?? snapshot.batch.finalAblInches)
+                .toStringAsFixed(2),
           ];
         }),
       );
@@ -672,8 +676,10 @@ class ReportExportService {
               (latest?.abw ?? batch.finalAbw).toStringAsFixed(2),
             ],
             [
-              'Final ABL (cm)',
-              (latest?.avgLength ?? batch.finalAbl).toStringAsFixed(2),
+              'Final ABL (in)',
+              (latest?.avgLengthInches ?? batch.finalAblInches).toStringAsFixed(
+                2,
+              ),
             ],
           ],
         );
@@ -713,12 +719,12 @@ class ReportExportService {
               );
               _appendExcelTable(
                 sheet,
-                headers: const ['Crayfish No.', 'Weight (g)', 'Length (cm)'],
+                headers: const ['Crayfish No.', 'Weight (g)', 'Length (in)'],
                 rows: entry.measurements.map(
                   (measurement) => <Object?>[
                     measurement.sampleNumber,
                     measurement.weightGrams.toStringAsFixed(2),
-                    measurement.lengthCm.toStringAsFixed(2),
+                    measurement.lengthInches.toStringAsFixed(2),
                   ],
                 ),
               );
@@ -862,7 +868,7 @@ class ReportExportService {
             ['Days in Culture', '${t.daysInCulture}'],
             ['Initial Population', '${t.initialCount}'],
             ['Initial ABW (g)', t.initialWeight.toStringAsFixed(2)],
-            ['Initial ABL (cm)', t.initialLength.toStringAsFixed(2)],
+            ['Initial ABL (in)', t.initialLengthInches.toStringAsFixed(2)],
             ['Surviving Count (including harvested)', '${t.liveCount}'],
             ['Current In-Tank Count', '${t.inTankCount}'],
             ['Total Mortality', '${t.totalMortalityFromHistory}'],
@@ -1092,7 +1098,7 @@ class ReportExportService {
                   '${_snapshotHarvested(snapshot)}',
                   '${_snapshotSurvivalRate(snapshot).toStringAsFixed(2)}%',
                   (latest?.abw ?? snapshot.batch.finalAbw).toStringAsFixed(2),
-                  (latest?.avgLength ?? snapshot.batch.finalAbl)
+                  (latest?.avgLengthInches ?? snapshot.batch.finalAblInches)
                       .toStringAsFixed(2),
                 ];
               }).toList(),
@@ -1172,8 +1178,9 @@ class ReportExportService {
                     (latest?.abw ?? batch.finalAbw).toStringAsFixed(2),
                   ],
                   [
-                    'Final ABL (cm)',
-                    (latest?.avgLength ?? batch.finalAbl).toStringAsFixed(2),
+                    'Final ABL (in)',
+                    (latest?.avgLengthInches ?? batch.finalAblInches)
+                        .toStringAsFixed(2),
                   ],
                 ],
                 fontSize: 9,
@@ -1216,14 +1223,14 @@ class ReportExportService {
                     headers: const [
                       'Crayfish No.',
                       'Weight (g)',
-                      'Length (cm)',
+                      'Length (in)',
                     ],
                     rows: entry.measurements
                         .map(
                           (measurement) => [
                             '${measurement.sampleNumber}',
                             measurement.weightGrams.toStringAsFixed(2),
-                            measurement.lengthCm.toStringAsFixed(2),
+                            measurement.lengthInches.toStringAsFixed(2),
                           ],
                         )
                         .toList(),

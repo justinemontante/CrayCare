@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +11,7 @@ import '../widgets/production/crayfish/crayfish_overview_tab.dart';
 import '../widgets/production/crayfish/crayfish_sampling_tab.dart';
 import '../widgets/production/crayfish/crayfish_trends_tab.dart';
 import '../widgets/production/crayfish/crayfish_batch_list.dart';
+import '../utils/length_units.dart';
 import '../utils/snackbar_helper.dart';
 
 class ProductionScreen extends StatefulWidget {
@@ -73,6 +75,30 @@ class ProductionScreenState extends State<ProductionScreen> {
     if (mounted && !_setupModalOpen && !_mortalityModalOpen) {
       setState(() => _lastEdited = DateTime.now());
     }
+  }
+
+  Future<void> _waitForModalDismissal(Animation<double>? animation) async {
+    if (animation == null || animation.status == AnimationStatus.dismissed) {
+      return;
+    }
+
+    final dismissed = Completer<void>();
+    late final AnimationStatusListener listener;
+    listener = (status) {
+      if (status == AnimationStatus.dismissed) {
+        animation.removeStatusListener(listener);
+        if (!dismissed.isCompleted) dismissed.complete();
+      }
+    };
+    animation.addStatusListener(listener);
+
+    // Close the small race where the reverse animation finishes as the
+    // listener is being attached.
+    if (animation.status == AnimationStatus.dismissed) {
+      animation.removeStatusListener(listener);
+      if (!dismissed.isCompleted) dismissed.complete();
+    }
+    await dismissed.future;
   }
 
   @override
@@ -375,7 +401,8 @@ class ProductionScreenState extends State<ProductionScreen> {
           if (rawDraft != null) {
             final decoded = jsonDecode(rawDraft);
             if (decoded is Map<String, dynamic> &&
-                decoded['draftVersion'] == 2 &&
+                (decoded['draftVersion'] == 2 ||
+                    decoded['draftVersion'] == 3) &&
                 decoded['baseBatchId'] == draftBaseBatchId) {
               draft = decoded;
             } else {
@@ -413,11 +440,17 @@ class ProductionScreenState extends State<ProductionScreen> {
         : null;
     final weightControllers = <TextEditingController>[];
     final lengthControllers = <TextEditingController>[];
+    Animation<double>? setupModalAnimation;
     final draftWeights = (draft?['weights'] as List?)
         ?.map((value) => value?.toString() ?? '')
         .toList();
+    final draftLengthsAreInches = draft?['draftVersion'] == 3;
     final draftLengths = (draft?['lengths'] as List?)
-        ?.map((value) => value?.toString() ?? '')
+        ?.map(
+          (value) => draftLengthsAreInches
+              ? value?.toString() ?? ''
+              : legacyCentimeterLengthTextToInches(value),
+        )
         .toList();
     void resizeMeasurementControllers(int requested) {
       if (requested < 0 || requested > maxCrayfishMeasurementsPerSample) {
@@ -437,7 +470,7 @@ class ProductionScreenState extends State<ProductionScreen> {
         lengthControllers.add(
           TextEditingController(
             text: index < (baseline?.measurements.length ?? 0)
-                ? baseline!.measurements[index].lengthCm.toString()
+                ? baseline!.measurements[index].lengthInches.toString()
                 : (draftLengths != null && index < draftLengths.length
                       ? draftLengths[index]
                       : ''),
@@ -445,8 +478,14 @@ class ProductionScreenState extends State<ProductionScreen> {
         );
       }
       while (weightControllers.length > requested) {
-        weightControllers.removeLast().dispose();
-        lengthControllers.removeLast().dispose();
+        final removedWeightController = weightControllers.removeLast();
+        final removedLengthController = lengthControllers.removeLast();
+        // The corresponding TextFields leave the tree on the setState below.
+        // Keep their controllers alive until that frame has unmounted them.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          removedWeightController.dispose();
+          removedLengthController.dispose();
+        });
       }
     }
 
@@ -460,7 +499,7 @@ class ProductionScreenState extends State<ProductionScreen> {
       final key = draftKey;
       if (isEdit || isSaving || prefs == null || key == null) return;
       final value = jsonEncode({
-        'draftVersion': 2,
+        'draftVersion': 3,
         'baseBatchId': draftBaseBatchId,
         'batchName': batchNameCtrl.text,
         'population': countCtrl.text,
@@ -510,6 +549,7 @@ class ProductionScreenState extends State<ProductionScreen> {
         reverseDuration: Duration(milliseconds: 220),
       ),
       builder: (ctx) {
+        setupModalAnimation ??= ModalRoute.of(ctx)?.animation;
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
             String? validateSample({bool? showMissing}) {
@@ -807,7 +847,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                           ),
                           subtitle: Text(
                             weight.isNotEmpty && length.isNotEmpty
-                                ? '$weight g • $length cm'
+                                ? '$weight g • $length in'
                                 : 'Tap to enter weight and length',
                             style: TextStyle(
                               fontSize: 10,
@@ -864,7 +904,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       const Text(
-                                        'Length (cm)',
+                                        'Length (in)',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w700,
@@ -926,7 +966,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                           weightControllers[index].text,
                                         ) ??
                                         double.nan,
-                                    lengthCm:
+                                    lengthInches:
                                         double.tryParse(
                                           lengthControllers[index].text,
                                         ) ??
@@ -1035,6 +1075,11 @@ class ProductionScreenState extends State<ProductionScreen> {
       },
     ).whenComplete(() async {
       await pendingDraftSave;
+      // The sheet future completes as the reverse transition starts. Wait for
+      // the route to finish dismissing before disposing controllers still
+      // attached to its TextFields.
+      await _waitForModalDismissal(setupModalAnimation);
+      await WidgetsBinding.instance.endOfFrame;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         batchNameCtrl.dispose();
         countCtrl.dispose();
@@ -1896,13 +1941,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         if (act.abw != null &&
-                                            act.avgLength != null)
+                                            act.avgLengthInches != null)
                                           Padding(
                                             padding: const EdgeInsets.only(
                                               top: 3,
                                             ),
                                             child: Text(
-                                              'ABW: ${act.abw!.toStringAsFixed(2)}g  |  ABL: ${act.avgLength!.toStringAsFixed(2)}cm',
+                                              'ABW: ${act.abw!.toStringAsFixed(2)} g  |  ABL: ${act.avgLengthInches!.toStringAsFixed(2)} in',
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w700,

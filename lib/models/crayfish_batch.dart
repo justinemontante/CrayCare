@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/length_units.dart';
 import '../utils/prediction_timestamp.dart';
 
 DateTime _readProductionDate(dynamic value) =>
@@ -52,12 +53,12 @@ class CrayfishBatch {
   final int totalMortality;
   final double? harvestWeightGrams;
   final double initialAbw;
-  final double initialAbl;
+  final double initialAblInches;
   final double finalAbw;
-  final double finalAbl;
+  final double finalAblInches;
   final int sampleCount;
   final double initialTotalWeight;
-  final double initialTotalLength;
+  final double initialTotalLengthInches;
   final Map<String, dynamic>? archivedSampling;
   final Map<String, dynamic>? archivedMortality;
 
@@ -72,12 +73,12 @@ class CrayfishBatch {
     this.totalMortality = 0,
     this.harvestWeightGrams,
     this.initialAbw = 0,
-    this.initialAbl = 0,
+    this.initialAblInches = 0,
     this.finalAbw = 0,
-    this.finalAbl = 0,
+    this.finalAblInches = 0,
     this.sampleCount = 0,
     this.initialTotalWeight = 0,
-    this.initialTotalLength = 0,
+    this.initialTotalLengthInches = 0,
     this.archivedSampling,
     this.archivedMortality,
   });
@@ -110,7 +111,11 @@ class CrayfishBatch {
     final rawSampling =
         safeMap(json['archived_sampling']) ?? safeMap(json['archivedSampling']);
     final legacyInitialAbw = (json['initial_abw'] as num?)?.toDouble();
-    final legacyInitialAbl = (json['initial_abl'] as num?)?.toDouble();
+    final legacyInitialAblInches =
+        (json['initial_abl_inches'] as num?)?.toDouble() ??
+        ((json['initial_abl'] as num?) == null
+            ? null
+            : centimetersToInches(json['initial_abl'] as num));
 
     int fallbackSampleCount = 0;
     if (rawSampling != null && rawSampling.isNotEmpty) {
@@ -141,15 +146,22 @@ class CrayfishBatch {
     final initialTotalWeight =
         (json['initial_total_weight'] as num?)?.toDouble() ??
         ((legacyInitialAbw ?? 0) * sampleCount);
-    final initialTotalLength =
-        (json['initial_total_length'] as num?)?.toDouble() ??
-        ((legacyInitialAbl ?? 0) * sampleCount);
+    final initialTotalLengthInches =
+        (json['initial_total_length_inches'] as num?)?.toDouble() ??
+        ((json['initial_total_length'] as num?) == null
+            ? ((legacyInitialAblInches ?? 0) * sampleCount)
+            : centimetersToInches(json['initial_total_length'] as num));
     final initialAbw = sampleCount > 0 && initialTotalWeight > 0
         ? initialTotalWeight / sampleCount
         : legacyInitialAbw ?? 0.0;
-    final initialAbl = sampleCount > 0 && initialTotalLength > 0
-        ? initialTotalLength / sampleCount
-        : legacyInitialAbl ?? 0.0;
+    final initialAblInches = sampleCount > 0 && initialTotalLengthInches > 0
+        ? initialTotalLengthInches / sampleCount
+        : legacyInitialAblInches ?? 0.0;
+    final legacyFinalAblInches =
+        (json['final_abl_inches'] as num?)?.toDouble() ??
+        ((json['final_abl'] as num?) == null
+            ? 0.0
+            : centimetersToInches(json['final_abl'] as num));
 
     return CrayfishBatch(
       batchId: json['batch_id'] as String? ?? 'Unknown',
@@ -166,14 +178,14 @@ class CrayfishBatch {
       totalMortality: (json['total_mortality'] as num?)?.toInt() ?? 0,
       harvestWeightGrams: (json['harvest_weight_grams'] as num?)?.toDouble(),
       initialAbw: initialAbw,
-      initialAbl: initialAbl,
+      initialAblInches: initialAblInches,
       // Read legacy snapshots for compatibility. TankService hydrates these
       // values from the latest sampling record whenever source records exist.
       finalAbw: (json['final_abw'] as num?)?.toDouble() ?? 0,
-      finalAbl: (json['final_abl'] as num?)?.toDouble() ?? 0,
+      finalAblInches: legacyFinalAblInches,
       sampleCount: sampleCount,
       initialTotalWeight: initialTotalWeight,
-      initialTotalLength: initialTotalLength,
+      initialTotalLengthInches: initialTotalLengthInches,
       archivedSampling: rawSampling,
       archivedMortality:
           safeMap(json['archived_mortality']) ??
@@ -212,12 +224,12 @@ class CrayfishBatch {
     totalMortality: totalMortality,
     harvestWeightGrams: harvestWeightGrams,
     initialAbw: initialAbw,
-    initialAbl: initialAbl,
+    initialAblInches: initialAblInches,
     finalAbw: abw,
-    finalAbl: abl,
+    finalAblInches: abl,
     sampleCount: sampleCount,
     initialTotalWeight: initialTotalWeight,
-    initialTotalLength: initialTotalLength,
+    initialTotalLengthInches: initialTotalLengthInches,
     archivedSampling: archivedSampling,
     archivedMortality: archivedMortality,
   );
@@ -236,12 +248,12 @@ class CrayfishBatch {
     totalMortality: totalMortality,
     harvestWeightGrams: harvestWeightGrams,
     initialAbw: abw,
-    initialAbl: abl,
+    initialAblInches: abl,
     finalAbw: finalAbw,
-    finalAbl: finalAbl,
+    finalAblInches: finalAblInches,
     sampleCount: sampleCount,
     initialTotalWeight: initialTotalWeight,
-    initialTotalLength: initialTotalLength,
+    initialTotalLengthInches: initialTotalLengthInches,
     archivedSampling: archivedSampling,
     archivedMortality: archivedMortality,
   );

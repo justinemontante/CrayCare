@@ -20,21 +20,21 @@ void main() {
           id: 'sample-1',
           date: sampleDate,
           abw: 10,
-          avgLength: 5,
+          avgLengthInches: 5,
           sampleSize: 2,
           totalWeight: 20,
-          totalLength: 10,
+          totalLengthInches: 10,
           liveCount: 20,
           measurements: const [
             CrayfishMeasurement(
               sampleNumber: 1,
               weightGrams: 9.5,
-              lengthCm: 4.8,
+              lengthInches: 4.8,
             ),
             CrayfishMeasurement(
               sampleNumber: 2,
               weightGrams: 10.5,
-              lengthCm: 5.2,
+              lengthInches: 5.2,
             ),
           ],
         ),
@@ -55,7 +55,7 @@ void main() {
       final csv = ReportExportService.instance.buildAllGrowthCsv([snapshot]);
 
       expect(csv, contains('Individual Crayfish Measurements'));
-      expect(csv, contains('Crayfish No.,Weight (g),Length (cm)'));
+      expect(csv, contains('Crayfish No.,Weight (g),Length (in)'));
       expect(csv, contains('1,9.50,4.80'));
       expect(csv, contains('2,10.50,5.20'));
       expect(csv, contains('2026-01-08,2'));

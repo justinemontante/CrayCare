@@ -1033,7 +1033,7 @@ class DashboardScreenState extends State<DashboardScreen>
       final weekly = history.where((e) => !e.isBaseline).toList();
       final latest = weekly.isNotEmpty ? weekly.last : null;
       abw = latest != null ? latest.abw : tank.initialWeight;
-      abl = latest != null ? latest.avgLength : tank.initialLength;
+      abl = latest != null ? latest.avgLengthInches : tank.initialLengthInches;
       daysStr = tank.daysInCulture.toString();
       lastSamplingStr = latest != null
           ? _formatTankDate(latest.date)
@@ -1043,7 +1043,7 @@ class DashboardScreenState extends State<DashboardScreen>
       showSampling = true;
     } else if (isArchived) {
       abw = batch.finalAbw;
-      abl = batch.finalAbl;
+      abl = batch.finalAblInches;
       daysStr = '${batch.daysInCulture}';
       lastSamplingStr = batch.harvestDate != null
           ? _formatTankDate(batch.harvestDate!)
@@ -1081,7 +1081,7 @@ class DashboardScreenState extends State<DashboardScreen>
                 child: _grayItem(
                   Icons.straighten,
                   'Average Body Length',
-                  abl > 0 ? '${abl.toStringAsFixed(2)}cm' : '--',
+                  abl > 0 ? '${abl.toStringAsFixed(2)} in' : '--',
                 ),
               ),
             ],

@@ -25,8 +25,9 @@ the same owner/tank checks and inference as the history-triggered function and w
 one timestamped history detection; the app reads the newest history record as
 the latest result. New history records trigger analysis after deployment.
 For a continuous sensor and history
-visualization instead, run `npm run ml:demo` and allow valid readings to span
-roughly two hours. Actual capture timestamps determine readiness.
+visualization instead, run `npm run ml:demo` and allow at least three valid
+readings to arrive within one hour. Actual capture timestamps determine
+readiness; a missed interval no longer resets the window.
 These commands write synthetic data and/or analysis
 results to the live tank. They do not change sensor thresholds, retrain the
 model, or establish field validity.
@@ -94,7 +95,7 @@ The 98th-percentile decision boundary is a statistical rarity cutoff learned fro
 venv\Scripts\python.exe train_model.py --dataset real_sensor_history.csv --origin real_field_unvalidated --train-days 40 --output wqad_candidate.joblib
 ```
 
-The 40-day reference period is an example, not a required biological duration. Select it before inspecting the later holdout. The pipeline requires a later holdout and at least 100 usable reference rows. It rejects invalid aggregates, sorts and deduplicates timestamps per series, and rebuilds the two-hour warm-up after a material cadence gap. Live inference requires at least six readings spanning 110 minutes in a continuous two-hour window, based on actual capture times. No missing reading is interpolated. Real-history fitting does not require labels. Without independent labels, the report contains alert frequency and drift diagnostics, not accuracy, precision, or recall. Synthetic event metrics are explicitly simulation-only. Back up the current runtime bundle before any future model replacement and document target-tank validation before production claims.
+The 40-day reference period is an example, not a required biological duration. Select it before inspecting the later holdout. The pipeline requires a later holdout and at least 100 usable reference rows. It rejects invalid aggregates, sorts and deduplicates timestamps per series, and rebuilds the two-hour warm-up after a material cadence gap. Live inference accepts at least three valid readings within the most recent hour, even when their timestamps have gaps; the latest reading must still be no more than 20 minutes old. The feature builder uses only observed values and actual timestamps, and never interpolates a missing reading. Real-history fitting does not require labels. Without independent labels, the report contains alert frequency and drift diagnostics, not accuracy, precision, or recall. Synthetic event metrics are explicitly simulation-only. Back up the current runtime bundle before any future model replacement and document target-tank validation before production claims. The readiness change retains feature version 3 and does not by itself require retraining.
 
 ## Evidence behind user-facing checks
 

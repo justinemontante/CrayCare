@@ -48,10 +48,10 @@ void main() {
         final entry = SamplingEntry(
           date: DateTime(2026, 9, 13),
           abw: 4,
-          avgLength: 3,
+          avgLengthInches: 3,
           sampleSize: 10,
           totalWeight: 40,
-          totalLength: 30,
+          totalLengthInches: 30,
           liveCount: 100,
         );
 

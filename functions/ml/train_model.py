@@ -93,6 +93,20 @@ def train(dataset, train_days=None, reference_fraction=.80,
     daily = pd.DataFrame({'day': rows.loc[test_mask, 'timestamp'].dt.strftime('%Y-%m-%d'),
                           'unusual': predicted}).groupby('day').unusual.agg(['count', 'sum', 'mean'])
     drift = ((test.median() - fit.median()) / scales).abs().sort_values(ascending=False)
+    origin_limitations = {
+        'real_field_unvalidated': (
+            'Target-tank field data have not been independently validated for '
+            'sensor calibration, data provenance, or crayfish health outcomes.'
+        ),
+        'synthetic_bootstrap_not_field_validated': (
+            'Synthetic bootstrap data do not establish field performance or '
+            'crayfish health outcomes.'
+        ),
+        'external_freshwater_fishpond_proxy_unvalidated': (
+            'External freshwater fishpond proxy data have not been validated '
+            'on the target crayfish tank.'
+        ),
+    }
     report = {
         'algorithm': bundle['algorithm'], 'feature_version': 3,
         'data_origin': origin, 'dataset_sha256': bundle['dataset_sha256'],
@@ -110,7 +124,7 @@ def train(dataset, train_days=None, reference_fraction=.80,
         'limitations': ['Alert fraction is not accuracy or a measured false-positive rate.',
             'Reference data may contain degraded conditions; class labels were not used.',
             'Temporal dependence and distribution shift invalidate an assumed fixed false-alarm guarantee.',
-            'Public fishpond proxy has not been validated on the target crayfish tank.'],
+            origin_limitations[origin]],
     }
     return bundle, report
 

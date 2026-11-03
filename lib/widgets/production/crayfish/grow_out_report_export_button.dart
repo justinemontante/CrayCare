@@ -29,7 +29,10 @@ Future<void> showGrowOutReportExport(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+    sheetAnimationStyle: const AnimationStyle(
+      duration: Duration(milliseconds: 260),
+      reverseDuration: Duration(milliseconds: 220),
+    ),
     builder: (sheetContext) => SafeArea(
       top: false,
       child: Padding(
@@ -127,7 +130,10 @@ class GrowOutReportExportButton extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
           final hasSelectedBatch = selectedBatchIds.isNotEmpty;
@@ -452,7 +458,10 @@ class GrowOutReportExportButton extends StatelessWidget {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
           ),
-          sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+          sheetAnimationStyle: const AnimationStyle(
+            duration: Duration(milliseconds: 260),
+            reverseDuration: Duration(milliseconds: 220),
+          ),
           builder: (sheetContext) => SafeArea(
             top: false,
             child: SizedBox(
@@ -600,7 +609,7 @@ class GrowOutReportExportButton extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 7),
                   child: Text(
-                    '${rows[i][0]} · ${rows[i][1]} · Sample size: ${rows[i][2]}\nTotal length: ${rows[i][3]} cm · Total weight: ${rows[i][4]} g\nAverage length: ${rows[i][5]} cm · Average weight: ${rows[i][6]} g',
+                    '${rows[i][0]} · ${rows[i][1]} · Sample size: ${rows[i][2]}\nTotal length: ${rows[i][3]} in · Total weight: ${rows[i][4]} g\nAverage length: ${rows[i][5]} in · Average weight: ${rows[i][6]} g',
                     style: TextStyle(
                       fontSize: 11,
                       height: 1.4,
@@ -629,7 +638,7 @@ class GrowOutReportExportButton extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(left: 10, top: 3),
                         child: Text(
-                          'Crayfish ${measurement.sampleNumber}: ${measurement.weightGrams.toStringAsFixed(2)} g · ${measurement.lengthCm.toStringAsFixed(2)} cm',
+                          'Crayfish ${measurement.sampleNumber}: ${measurement.weightGrams.toStringAsFixed(2)} g · ${measurement.lengthInches.toStringAsFixed(2)} in',
                           style: TextStyle(
                             fontSize: 10,
                             color: AppColors.darkWith(0.62),

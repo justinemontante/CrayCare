@@ -338,7 +338,7 @@ class CrayfishBatchList extends StatelessWidget {
                   ),
                   _miniStat(
                     'ABL',
-                    '${batch.initialAbl.toStringAsFixed(1)}cm',
+                    '${batch.initialAblInches.toStringAsFixed(1)} in',
                     AppColors.primary,
                   ),
                 ] else ...[

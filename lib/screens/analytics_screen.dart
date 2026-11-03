@@ -324,8 +324,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       historyStart = now.subtract(const Duration(days: 7));
       historyEnd = now;
     } else if (range == '30d') {
-      final today = DateTime(now.year, now.month, now.day);
-      historyStart = today.subtract(const Duration(days: 29));
+      // Use a rolling 30 × 24-hour window so inclusion is determined by each
+      // record's timestamp, not by its calendar date.
+      historyStart = now.subtract(const Duration(days: 30));
       historyEnd = now;
     } else {
       historyStart = DateTime(
@@ -348,7 +349,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     var customGranularity = 'daily';
     late final int pts;
     if (range == '24h') {
-      pts = 144; // 10-minute buckets × 24 hours
+      pts = 1; // The plotted point count comes from actual readings below.
     } else if (range == '7d') {
       pts = 168; // hourly buckets × 7 days
     } else if (range == '30d') {
@@ -370,23 +371,20 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      // Reuse cached daily records. The live history listener appends newly
-      // created entries to today's cache without refetching the full range.
+      // 30D must use raw entries rather than daily summaries. Reuse the
+      // per-day cache on refresh and surface failed day reads as load errors.
       final fetch = SensorService.instance.fetchHistoryRange(
         start: historyStart,
         end: historyEnd,
         useDailySummaries: range != '7d' && range != '30d' && range != 'custom',
+        requireComplete: range == '30d',
       );
-      if (range == 'custom') {
-        // Large custom ranges can legitimately span hundreds of daily
-        // summaries/raw-history days. Let Firestore complete instead of
-        // converting a slow but valid query into a false "No data" result.
+      if (range == 'custom' || range == '30d') {
+        // Long raw-history ranges can span thousands of entries. Let Firestore
+        // complete instead of showing an incomplete range after a timeout.
         records = await fetch;
       } else {
-        final timeout = range == '30d'
-            ? const Duration(seconds: 60)
-            : const Duration(seconds: 30);
-        records = await fetch.timeout(timeout);
+        records = await fetch.timeout(const Duration(seconds: 30));
       }
     } catch (e) {
       _historyLoadFailed.add(range);
@@ -423,10 +421,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return;
     }
 
-    // The 7-day, 30-day, and custom views plot every saved history entry
-    // directly instead of combining readings into hourly/daily averages.
+    // The 24-hour, 7-day, 30-day, and custom views plot each saved history
+    // entry directly, so missing time does not create empty chart positions.
     // The chart can be horizontally scrolled to inspect each record.
-    if (range == '7d' || range == '30d' || range == 'custom') {
+    if (range == '24h' ||
+        range == '7d' ||
+        range == '30d' ||
+        range == 'custom') {
       _labels[range] = records.map((record) {
         final time = _recordTime(record);
         final hour = time.hour > 12
@@ -598,9 +599,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         if (count > 0) averages[i] = sum / count;
       }
 
-      // Keep empty buckets as NaN. AnalyticsLineChart already breaks line
-      // segments at NaN, so actual sensor outages remain visible instead of
-      // compressing time and joining unrelated readings together.
+      // Keep empty buckets as NaN to preserve elapsed-time spacing. The chart
+      // skips these buckets and connects the surrounding real readings.
       _data['$key-$range'] = averages;
       // Period Min/Max are calculated from these same plotted data points.
       _minData['$key-$range'] = List<double>.from(averages);
@@ -1299,6 +1299,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ? null
                             : thresholds['max'],
                         decimalPlaces: dp,
+                        connectAcrossMissingData: _activeFilter == '24h',
                         // Start on the newest point in the selected range.
                         initialScrollToEnd: true,
                       ),
@@ -1983,6 +1984,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                     ? null
                                     : thresholds['max'],
                                 decimalPlaces: dp,
+                                connectAcrossMissingData:
+                                    _activeFilter == '24h',
                                 // Expanded chart follows the same oldest → newest flow.
                                 initialScrollToEnd: true,
                               ),

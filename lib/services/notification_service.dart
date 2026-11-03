@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,10 +7,10 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
 import '../models/notification_item.dart';
 import '../utils/prediction_timestamp.dart';
-import '../utils/notification_snapshot_reconciliation.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
@@ -166,7 +167,29 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
 class NotificationService extends ChangeNotifier {
   static final NotificationService instance = NotificationService._();
   NotificationService._();
+  // Show only notifications created since the notification reset on
+  // 2026-10-31. Existing Firestore documents stay intact but remain hidden.
+  static final DateTime _notificationsVisibleFromUtc = DateTime.utc(
+    2026,
+    10,
+    31,
+    5,
+    54,
+    42,
+  );
+  static const int _notificationCacheLimit = 100;
+  static const String _notificationCacheKeyPrefix = 'notifications_cache_v2_';
+  static const String _notificationCursorSecondsKeyPrefix =
+      'notifications_cursor_seconds_v2_';
+  static const String _notificationCursorNanosKeyPrefix =
+      'notifications_cursor_nanos_v2_';
+  static const String _notificationCursorIdKeyPrefix =
+      'notifications_cursor_id_v2_';
   final List<NotificationItem> _notifications = [];
+  Future<void> _cacheWriteQueue = Future<void>.value();
+  Timestamp? _notificationCursor;
+  String? _notificationCursorId;
+  int _notificationSyncGeneration = 0;
   bool _initialized = false;
   bool _notifSound = true;
   bool _notifVibration = true;
@@ -190,7 +213,10 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription<String>? _tokenSub;
   StreamSubscription<RemoteMessage>? _foregroundMessageSub;
 
-  Iterable<NotificationItem> get _visibleNotifications => _notifications;
+  Iterable<NotificationItem> get _visibleNotifications => _notifications.where(
+    (notification) =>
+        !notification.created_at.toUtc().isBefore(_notificationsVisibleFromUtc),
+  );
   List<NotificationItem> get notifications =>
       List.unmodifiable(_visibleNotifications);
 
@@ -226,6 +252,9 @@ class NotificationService extends ChangeNotifier {
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       _notifications.clear();
       _cancelSubscriptions();
+      _notificationCursor = null;
+      _notificationCursorId = null;
+      _notificationSyncGeneration++;
       _userRole = null;
       if (user != null) _listenProfile();
       notifyListeners();
@@ -526,6 +555,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   void _cancelSubscriptions() {
+    _notificationSyncGeneration++;
     _notifSub?.cancel();
     _prefsSub?.cancel();
     _profileFirestoreSub?.cancel();
@@ -543,65 +573,253 @@ class NotificationService extends ChangeNotifier {
     // Profile snapshots can fire for unrelated profile changes. Keep the
     // existing query listener instead of restarting it and leaving old
     // in-memory notifications behind.
-    if (_notificationListenerUid == uid && _notifSub != null) return;
+    if (_notificationListenerUid == uid) return;
 
     _notifSub?.cancel();
     _notificationListenerUid = uid;
-    _notifSub = FirebaseFirestore.instance
+    final generation = ++_notificationSyncGeneration;
+    unawaited(_startNotificationSync(uid, generation));
+  }
+
+  Future<void> _startNotificationSync(String uid, int generation) async {
+    await _loadNotificationCache(uid);
+    if (!_isCurrentNotificationSync(uid, generation)) return;
+
+    final collection = FirebaseFirestore.instance
         .collection('notifications')
         .where('uid', isEqualTo: uid)
-        .orderBy('created_at', descending: true)
-        .limit(100)
-        // Metadata events let us distinguish a possibly partial offline-cache
-        // snapshot from a server-confirmed snapshot used to prune stale rows.
+        .where(
+          'created_at',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(
+            _notificationsVisibleFromUtc,
+          ),
+        );
+
+    if (_notificationCursor == null || _notificationCursorId == null) {
+      final initialQuery = collection
+          .orderBy('created_at', descending: true)
+          .limit(_notificationCacheLimit);
+      QuerySnapshot<Map<String, dynamic>>? initial;
+      try {
+        initial = await initialQuery.get(
+          const GetOptions(source: Source.serverAndCache),
+        );
+      } catch (error) {
+        debugPrint('[Notif] Initial server sync failed: $error');
+        try {
+          initial = await initialQuery.get(
+            const GetOptions(source: Source.cache),
+          );
+        } catch (cacheError) {
+          debugPrint('[Notif] Initial cache sync failed: $cacheError');
+        }
+      }
+      if (!_isCurrentNotificationSync(uid, generation)) return;
+      if (initial != null) {
+        for (final doc in initial.docs) {
+          _upsertNotification(doc.id, doc.data());
+          if (!initial.metadata.isFromCache) {
+            _advanceNotificationCursor(doc.id, doc.data());
+          }
+        }
+        _sortAndLimitNotifications();
+        _persistNotificationCache(uid);
+        notifyListeners();
+      }
+    }
+
+    if (!_isCurrentNotificationSync(uid, generation)) return;
+    var liveQuery = collection
+        .orderBy('created_at')
+        .orderBy(FieldPath.documentId);
+    final cursor = _notificationCursor;
+    final cursorId = _notificationCursorId;
+    if (cursor != null && cursorId != null) {
+      liveQuery = liveQuery.startAfter([cursor, cursorId]);
+    }
+    _notifSub = liveQuery
         .snapshots(includeMetadataChanges: true)
-        .listen((snap) {
-          for (final change in snap.docChanges) {
-            final doc = change.doc;
-            final key = doc.id;
-            if (change.type == DocumentChangeType.removed) {
-              _notifications.removeWhere((n) => n.id == key);
+        .listen(
+          (snapshot) {
+            if (!_isCurrentNotificationSync(uid, generation)) return;
+            var changed = false;
+            for (final change in snapshot.docChanges) {
+              final doc = change.doc;
+              if (change.type == DocumentChangeType.removed) {
+                final beforeCount = _notifications.length;
+                _notifications.removeWhere((n) => n.id == doc.id);
+                changed |= _notifications.length != beforeCount;
+                continue;
+              }
+              final data = doc.data();
+              if (data == null) continue;
+              changed |= _upsertNotification(doc.id, data);
+              if (!snapshot.metadata.isFromCache) {
+                _advanceNotificationCursor(doc.id, data);
+              }
+            }
+            if (changed || !snapshot.metadata.isFromCache) {
+              _sortAndLimitNotifications();
+              _persistNotificationCache(uid);
+              notifyListeners();
+            }
+          },
+          onError: (Object error) {
+            debugPrint('[Notif] Incremental notification sync failed: $error');
+          },
+        );
+  }
+
+  bool _isCurrentNotificationSync(String uid, int generation) =>
+      generation == _notificationSyncGeneration &&
+      _notificationListenerUid == uid &&
+      FirebaseAuth.instance.currentUser?.uid == uid;
+
+  Future<void> _loadNotificationCache(String uid) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_notificationCacheKeyPrefix$uid');
+      final cached = <NotificationItem>[];
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final value in decoded) {
+            if (value is! Map) continue;
+            final map = Map<String, dynamic>.from(value);
+            final createdMs = map['created_at_ms'];
+            if (map['id'] is! String || createdMs is! num) continue;
+            final createdAt = DateTime.fromMillisecondsSinceEpoch(
+              createdMs.toInt(),
+              isUtc: true,
+            ).toLocal();
+            if (createdAt.toUtc().isBefore(_notificationsVisibleFromUtc)) {
               continue;
             }
-
-            final data = doc.data();
-            if (data == null) continue;
-            final notification = NotificationItem(
-              id: key,
-              notif_type: data['notif_type']?.toString() ?? 'operational',
-              title: data['title']?.toString() ?? '',
-              body: data['body']?.toString() ?? '',
-              created_at:
-                  parsePredictionTimestamp(data['created_at'])?.toLocal() ??
-                  DateTime.fromMillisecondsSinceEpoch(0),
-              is_read: data['is_read'] as bool? ?? false,
+            cached.add(
+              NotificationItem(
+                id: map['id'] as String,
+                notif_type: map['notif_type']?.toString() ?? 'operational',
+                title: map['title']?.toString() ?? '',
+                body: map['body']?.toString() ?? '',
+                created_at: createdAt,
+                is_read: map['is_read'] as bool? ?? false,
+              ),
             );
-            final idx = _notifications.indexWhere((n) => n.id == key);
-            if (idx == -1) {
-              _notifications.add(notification);
-            } else {
-              // Rebuild modified items too, so removing/changing a Firestore
-              // field (title, body, type, timestamp, or read status) is
-              // reflected instead of only refreshing is_read.
-              _notifications[idx] = notification;
-            }
           }
+        }
+      }
+      final seconds = prefs.getInt('$_notificationCursorSecondsKeyPrefix$uid');
+      final nanos = prefs.getInt('$_notificationCursorNanosKeyPrefix$uid');
+      final cursorId = prefs.getString('$_notificationCursorIdKeyPrefix$uid');
+      _notifications
+        ..clear()
+        ..addAll(cached);
+      if (seconds != null && nanos != null && cursorId != null) {
+        _notificationCursor = Timestamp(seconds, nanos);
+        _notificationCursorId = cursorId;
+      }
+      _sortAndLimitNotifications();
+      notifyListeners();
+    } catch (error) {
+      debugPrint('[Notif] Could not load local notification cache: $error');
+    }
+  }
 
-          // A newly attached query starts with "added" events for documents
-          // that still exist, not "removed" events for stale items already in
-          // memory. Reconcile only when Firestore confirms the complete server
-          // result. Cache-only snapshots can be incomplete while offline, so
-          // keep cached notifications until the server syncs again.
-          final reconciled = reconcileNotificationsForSnapshot(
-            current: _notifications,
-            snapshotIds: snap.docs.map((doc) => doc.id),
-            isFromCache: snap.metadata.isFromCache,
-          );
-          _notifications
-            ..clear()
-            ..addAll(reconciled);
-          _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
-          notifyListeners();
+  bool _upsertNotification(String id, Map<String, dynamic> data) {
+    final createdAt = parsePredictionTimestamp(data['created_at'])?.toLocal();
+    if (createdAt == null ||
+        createdAt.toUtc().isBefore(_notificationsVisibleFromUtc)) {
+      return false;
+    }
+    final notification = NotificationItem(
+      id: id,
+      notif_type: data['notif_type']?.toString() ?? 'operational',
+      title: data['title']?.toString() ?? '',
+      body: data['body']?.toString() ?? '',
+      created_at: createdAt,
+      is_read: data['is_read'] as bool? ?? false,
+    );
+    final index = _notifications.indexWhere((item) => item.id == id);
+    if (index == -1) {
+      _notifications.add(notification);
+      return true;
+    }
+    final previous = _notifications[index];
+    if (previous.notif_type == notification.notif_type &&
+        previous.title == notification.title &&
+        previous.body == notification.body &&
+        previous.created_at == notification.created_at &&
+        previous.is_read == notification.is_read) {
+      return false;
+    }
+    _notifications[index] = notification;
+    return true;
+  }
+
+  void _advanceNotificationCursor(String id, Map<String, dynamic> data) {
+    final value = data['created_at'];
+    if (value is! Timestamp) return;
+    final current = _notificationCursor;
+    final comparison = current == null ? 1 : value.compareTo(current);
+    if (comparison > 0 ||
+        (comparison == 0 &&
+            (_notificationCursorId == null ||
+                id.compareTo(_notificationCursorId!) > 0))) {
+      _notificationCursor = value;
+      _notificationCursorId = id;
+    }
+  }
+
+  void _sortAndLimitNotifications() {
+    _notifications.sort((a, b) => b.created_at.compareTo(a.created_at));
+    if (_notifications.length > _notificationCacheLimit) {
+      _notifications.removeRange(
+        _notificationCacheLimit,
+        _notifications.length,
+      );
+    }
+  }
+
+  void _persistNotificationCache(String uid) {
+    final content = jsonEncode(
+      _notifications
+          .map(
+            (notification) => {
+              'id': notification.id,
+              'notif_type': notification.notif_type,
+              'title': notification.title,
+              'body': notification.body,
+              'created_at_ms': notification.created_at
+                  .toUtc()
+                  .millisecondsSinceEpoch,
+              'is_read': notification.is_read,
+            },
+          )
+          .toList(growable: false),
+    );
+    final cursor = _notificationCursor;
+    final cursorId = _notificationCursorId;
+    _cacheWriteQueue = _cacheWriteQueue
+        .then((_) async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('$_notificationCacheKeyPrefix$uid', content);
+          if (cursor != null && cursorId != null) {
+            await prefs.setInt(
+              '$_notificationCursorSecondsKeyPrefix$uid',
+              cursor.seconds,
+            );
+            await prefs.setInt(
+              '$_notificationCursorNanosKeyPrefix$uid',
+              cursor.nanoseconds,
+            );
+            await prefs.setString(
+              '$_notificationCursorIdKeyPrefix$uid',
+              cursorId,
+            );
+          }
+        })
+        .catchError((Object error) {
+          debugPrint('[Notif] Could not save local notification cache: $error');
         });
   }
 
@@ -621,12 +839,13 @@ class NotificationService extends ChangeNotifier {
           .update({'is_read': true})
           .catchError((_) {});
     }
+    _persistNotificationCache(uid);
   }
 
   void markAsRead(String id) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
-    for (final n in _notifications) {
+    for (final n in _visibleNotifications) {
       if (n.id == id) {
         n.is_read = true;
         notifyListeners();
@@ -635,6 +854,7 @@ class NotificationService extends ChangeNotifier {
             .doc(id)
             .update({'is_read': true})
             .catchError((_) {});
+        _persistNotificationCache(uid);
         return;
       }
     }
@@ -644,20 +864,16 @@ class NotificationService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('notifications')
-          .where('uid', isEqualTo: uid)
-          .get();
       final batch = FirebaseFirestore.instance.batch();
-      for (final doc in snap.docs) {
-        batch.delete(doc.reference);
+      final idsToDelete = _visibleNotifications.map((n) => n.id).toList();
+      for (final id in idsToDelete) {
+        batch.delete(
+          FirebaseFirestore.instance.collection('notifications').doc(id),
+        );
       }
-      await batch.commit();
-      // The snapshot listener will remove server-deleted rows as events arrive.
-      // Clearing here as well keeps the UI responsive after a successful batch,
-      // while a failed batch leaves the current list intact instead of hiding
-      // notifications that still exist on the server.
-      _notifications.removeWhere((n) => snap.docs.any((d) => d.id == n.id));
+      if (idsToDelete.isNotEmpty) await batch.commit();
+      _notifications.removeWhere((n) => idsToDelete.contains(n.id));
+      _persistNotificationCache(uid);
       notifyListeners();
     } catch (e) {
       debugPrint('[NotificationService] Failed to clear Firebase: $e');

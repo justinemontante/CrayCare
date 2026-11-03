@@ -55,9 +55,18 @@ function stateForSensor(sensorName, value, range) {
     return {state: "normal"};
   }
   if (min === null || max === null || min >= max) return {state: "unknown"};
+  const margin = (max - min) * WARNING_MARGIN_FRACTION;
+  // Low turbidity means clearer water, so it is not a water-quality warning.
+  // Keep the upper-bound alert for readings that are high or nearing the limit.
+  if (sensorName === "turbidity") {
+    if (value > max) return {state: "critical", dir: "high", threshold: max};
+    if (value > max - margin) {
+      return {state: "warning", dir: "high", threshold: max};
+    }
+    return {state: "normal"};
+  }
   if (value < min) return {state: "critical", dir: "low", threshold: min};
   if (value > max) return {state: "critical", dir: "high", threshold: max};
-  const margin = (max - min) * WARNING_MARGIN_FRACTION;
   if (value < min + margin) return {state: "warning", dir: "low", threshold: min};
   if (value > max - margin) return {state: "warning", dir: "high", threshold: max};
   return {state: "normal"};

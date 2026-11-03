@@ -237,12 +237,13 @@ tanks/{tank_id}/batches/{batch_id}
 
   sampling_records/{sampling_id}
     sampling_date: Timestamp
-    measurements: array<object>  # sample_number, label, weight_g, length_cm
+    measurements: array<object>  # sample_number, label, weight_g, length_inches
+    # Legacy length_cm values are read as centimeters and converted to inches.
     live_count: number
     is_baseline: boolean
     created_at: Timestamp
     # App derives sample_size = measurements.length, total_weight and
-    # total_length as sums, ABW/ABL as averages, and biomass = live_count * ABW.
+    # total_length_inches as sums, ABW/ABL as averages, and biomass = live_count * ABW.
     # These derived aggregates are not persisted in new sampling records.
     # In the normalized relational ERD, each measurements array object is shown as
     # one sampling_measurements row; Firestore has no separate child collection.

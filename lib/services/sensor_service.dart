@@ -241,6 +241,14 @@ class SensorService extends ChangeNotifier {
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 
+    if (key == 'turb' && max > min) {
+      // Lower turbidity means clearer water. Only the upper range can warn.
+      if (value > max) return 'CRITICAL';
+      final warningThreshold = (max - min) * 0.10;
+      if (max < 999.0 && value > max - warningThreshold) return 'WARNING';
+      return 'OPTIMAL';
+    }
+
     if (value < min || value > max) {
       return 'CRITICAL';
     }
@@ -608,39 +616,186 @@ class SensorService extends ChangeNotifier {
 
   final Map<String, List<Map<String, dynamic>>> _dayCache = {};
   final Map<String, DateTime> _dayCachedAt = {};
+  final Map<String, Future<void>> _historyCacheWrites = {};
   static const _todayCacheTtl = Duration(seconds: 60);
   static const _historicalCacheTtl = Duration(hours: 12);
+  static const _cacheTimestampSecondsKey = '__analytics_timestamp_seconds';
+  static const _cacheTimestampNanosKey = '__analytics_timestamp_nanoseconds';
+  static const _cacheDateTimeMillisKey = '__analytics_datetime_millis';
 
   static String _dateStrFor(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  bool _isToday(String dateStr) => dateStr == _dateStrFor(DateTime.now());
+  Duration _cacheTtlFor(String dateStr, DateTime cachedAt) =>
+      dateStr == _dateStrFor(cachedAt) ? _todayCacheTtl : _historicalCacheTtl;
 
-  List<Map<String, dynamic>>? getCachedDay(String dateStr) {
-    final cached = _dayCache[dateStr];
-    final cachedAt = _dayCachedAt[dateStr];
+  String _historyDayCacheKey(String uid, String tankId, String dateStr) =>
+      'analytics_history_v2_${uid}_${tankId}_$dateStr';
+
+  String _memoryHistoryDayKey(String tankId, String dateStr) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'signed_out';
+    return '${uid}_${tankId}_$dateStr';
+  }
+
+  List<Map<String, dynamic>>? getCachedDay(
+    String dateStr, {
+    required String tankId,
+  }) {
+    final key = _memoryHistoryDayKey(tankId, dateStr);
+    final cached = _dayCache[key];
+    final cachedAt = _dayCachedAt[key];
     if (cached == null || cachedAt == null) return null;
 
-    final ttl = _isToday(dateStr) ? _todayCacheTtl : _historicalCacheTtl;
+    final ttl = _cacheTtlFor(dateStr, cachedAt);
     if (DateTime.now().difference(cachedAt) > ttl) {
-      _dayCache.remove(dateStr);
-      _dayCachedAt.remove(dateStr);
+      _dayCache.remove(key);
+      _dayCachedAt.remove(key);
       return null;
     }
     return cached;
   }
 
-  void cacheDay(String dateStr, List<Map<String, dynamic>> records) {
-    _dayCache[dateStr] = records;
-    _dayCachedAt[dateStr] = DateTime.now();
+  Object? _encodeHistoryCacheValue(Object? value) {
+    if (value is Timestamp) {
+      return {
+        _cacheTimestampSecondsKey: value.seconds,
+        _cacheTimestampNanosKey: value.nanoseconds,
+      };
+    }
+    if (value is DateTime) {
+      return {_cacheDateTimeMillisKey: value.millisecondsSinceEpoch};
+    }
+    if (value is Map) {
+      return value.map(
+        (key, nestedValue) =>
+            MapEntry(key.toString(), _encodeHistoryCacheValue(nestedValue)),
+      );
+    }
+    if (value is Iterable) {
+      return value.map(_encodeHistoryCacheValue).toList();
+    }
+    return value;
   }
 
-  void mergeHistoryDayEntries(
+  Object? _decodeHistoryCacheValue(Object? value) {
+    if (value is Map) {
+      final seconds = value[_cacheTimestampSecondsKey];
+      final nanos = value[_cacheTimestampNanosKey];
+      if (seconds is num && nanos is num) {
+        return Timestamp(seconds.toInt(), nanos.toInt());
+      }
+      final millis = value[_cacheDateTimeMillisKey];
+      if (millis is num) {
+        return DateTime.fromMillisecondsSinceEpoch(millis.toInt());
+      }
+      return value.map(
+        (key, nestedValue) =>
+            MapEntry(key.toString(), _decodeHistoryCacheValue(nestedValue)),
+      );
+    }
+    if (value is List) return value.map(_decodeHistoryCacheValue).toList();
+    return value;
+  }
+
+  Future<List<Map<String, dynamic>>?> _loadCachedDayFromDisk(
+    String dateStr, {
+    required String tankId,
+  }) async {
+    final inMemory = getCachedDay(dateStr, tankId: tankId);
+    if (inMemory != null) return inMemory;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return null;
+
+    final key = _historyDayCacheKey(uid, tankId, dateStr);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final cachedAtMillis = decoded['cached_at_ms'];
+      final rawRecords = decoded['records'];
+      if (cachedAtMillis is! num || rawRecords is! List) return null;
+
+      final cachedAt = DateTime.fromMillisecondsSinceEpoch(
+        cachedAtMillis.toInt(),
+      );
+      final ttl = _cacheTtlFor(dateStr, cachedAt);
+      if (DateTime.now().difference(cachedAt) > ttl ||
+          cachedAt.isAfter(DateTime.now())) {
+        await prefs.remove(key);
+        return null;
+      }
+
+      final records = <Map<String, dynamic>>[];
+      for (final rawRecord in rawRecords) {
+        if (rawRecord is! Map) continue;
+        final restored = _decodeHistoryCacheValue(rawRecord);
+        if (restored is Map) {
+          records.add(Map<String, dynamic>.from(restored));
+        }
+      }
+      final memoryKey = _memoryHistoryDayKey(tankId, dateStr);
+      _dayCache[memoryKey] = records;
+      _dayCachedAt[memoryKey] = cachedAt;
+      return records;
+    } catch (error) {
+      debugPrint('[SensorService] Could not restore analytics cache: $error');
+      return null;
+    }
+  }
+
+  Future<void> cacheDay(
     String dateStr,
-    Iterable<Map<String, dynamic>> additions,
-  ) {
+    List<Map<String, dynamic>> records, {
+    required String tankId,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return Future<void>.value();
+
+    final cachedAt = DateTime.now();
+    final memoryKey = _memoryHistoryDayKey(tankId, dateStr);
+    _dayCache[memoryKey] = records;
+    _dayCachedAt[memoryKey] = cachedAt;
+
+    final storageKey = _historyDayCacheKey(uid, tankId, dateStr);
+    try {
+      final payload = jsonEncode({
+        'cached_at_ms': cachedAt.millisecondsSinceEpoch,
+        'records': records.map(_encodeHistoryCacheValue).toList(),
+      });
+      final previous = _historyCacheWrites[storageKey] ?? Future<void>.value();
+      late final Future<void> next;
+      next = previous.catchError((Object _) {}).then((_) async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(storageKey, payload);
+        } catch (error) {
+          debugPrint('[SensorService] Could not save analytics cache: $error');
+        }
+      });
+      _historyCacheWrites[storageKey] = next;
+      return next.whenComplete(() {
+        if (identical(_historyCacheWrites[storageKey], next)) {
+          _historyCacheWrites.remove(storageKey);
+        }
+      });
+    } catch (error) {
+      debugPrint('[SensorService] Could not encode analytics cache: $error');
+      return Future<void>.value();
+    }
+  }
+
+  Future<void> mergeHistoryDayEntries(
+    String dateStr,
+    Iterable<Map<String, dynamic>> additions, {
+    required String tankId,
+  }) async {
+    await _loadCachedDayFromDisk(dateStr, tankId: tankId);
+    final memoryKey = _memoryHistoryDayKey(tankId, dateStr);
     final merged = <String, Map<String, dynamic>>{};
-    for (final record in _dayCache[dateStr] ?? const []) {
+    for (final record in _dayCache[memoryKey] ?? const []) {
       final id = record['id']?.toString();
       if (id != null && id.isNotEmpty) {
         merged[id] = Map<String, dynamic>.from(record);
@@ -658,7 +813,7 @@ class SensorService extends ChangeNotifier {
         final bTime = _extractTimestamp(b) ?? DateTime(2000);
         return aTime.compareTo(bTime);
       });
-    cacheDay(dateStr, records);
+    await cacheDay(dateStr, records, tankId: tankId);
   }
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -690,7 +845,7 @@ class SensorService extends ChangeNotifier {
             changed.add(data);
           }
           if (changed.isEmpty) return;
-          mergeHistoryDayEntries(dateKey, changed);
+          unawaited(mergeHistoryDayEntries(dateKey, changed, tankId: tankId));
           onRecords(changed);
         }, onError: onError);
   }
@@ -711,7 +866,7 @@ class SensorService extends ChangeNotifier {
   }
 
   bool _hasUsableDailySummary(Map<String, dynamic> data) {
-    if (data['summary_version'] != 3 ||
+    if (data['summary_version'] != 4 ||
         data['summary_complete'] != true ||
         data['summary_sanitized'] != true) {
       return false;
@@ -824,6 +979,7 @@ class SensorService extends ChangeNotifier {
     required String tankId,
     required DateTime start,
     required DateTime end,
+    bool requireComplete = false,
   }) async {
     final days = <String>[];
     for (
@@ -837,7 +993,7 @@ class SensorService extends ChangeNotifier {
     final uncachedDays = <String>[];
     final records = <Map<String, dynamic>>[];
     for (final dateStr in days) {
-      final cached = getCachedDay(dateStr);
+      final cached = await _loadCachedDayFromDisk(dateStr, tankId: tankId);
       if (cached != null) {
         records.addAll(cached);
       } else {
@@ -871,7 +1027,7 @@ class SensorService extends ChangeNotifier {
               data['id'] = doc.id;
               return data;
             }).toList();
-            cacheDay(dateStr, docs);
+            await cacheDay(dateStr, docs, tankId: tankId);
             return docs;
           } catch (e) {
             debugPrint(
@@ -887,13 +1043,16 @@ class SensorService extends ChangeNotifier {
                     .doc(dateStr)
                     .collection('entries')
                     .get(const GetOptions(source: Source.cache));
-                return cachedSnap.docs.map((doc) {
+                final docs = cachedSnap.docs.map((doc) {
                   final data = doc.data();
                   data['id'] = doc.id;
                   return data;
                 }).toList();
+                await cacheDay(dateStr, docs, tankId: tankId);
+                return docs;
               } catch (_) {}
             }
+            if (requireComplete) rethrow;
             return <Map<String, dynamic>>[];
           }
         });
@@ -915,6 +1074,7 @@ class SensorService extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
     bool useDailySummaries = true,
+    bool requireComplete = false,
   }) async {
     var tankId = _tankId;
     if (tankId == null) {
@@ -950,7 +1110,12 @@ class SensorService extends ChangeNotifier {
       if (summaryBacked != null) return summaryBacked;
     }
 
-    return _fetchEntryHistoryRange(tankId: tankId, start: start, end: end);
+    return _fetchEntryHistoryRange(
+      tankId: tankId,
+      start: start,
+      end: end,
+      requireComplete: requireComplete,
+    );
   }
 
   @override

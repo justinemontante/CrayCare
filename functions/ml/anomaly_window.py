@@ -1,15 +1,16 @@
-"""Validate a real-time, two-hour sensor window before WQAD inference."""
+"""Prepare recent sensor history for WQAD inference."""
 
 import math
 from numbers import Real
 
 
 def anomaly_window(frame, now_epoch):
-    """Use actual capture times, not an assumed ten-minute record count.
+    """Keep real readings from two hours and allow inference with sparse data.
 
-    This matches the v3 training warm-up (six rows spanning 110 minutes) and
-    uses a two-hour rolling window. A gap over 2.2 times the observed cadence
-    restarts the window; missing observations are never interpolated.
+    A result is ready when at least three distinct readings exist in the most
+    recent hour. Missing observations do not reset the window and are never
+    interpolated. The latest reading must still be recent, and the feature
+    builder uses actual timestamps when calculating changes and trends.
     """
     if frame.empty or "timestamp" not in frame:
         return frame.iloc[:0], "insufficient", None
@@ -33,14 +34,8 @@ def anomaly_window(frame, now_epoch):
     if now_epoch - last_at > 20 * 60:
         return rows.iloc[:0], "stale", last_at
     rows = rows[rows["timestamp"] >= last_at - 120 * 60].copy()
-    gaps = rows["timestamp"].diff()
-    positive_gaps = gaps[gaps > 0]
-    cadence = float(positive_gaps.median()) if not positive_gaps.empty else 600.0
-    if not 480 <= cadence <= 1800:
-        return rows, "insufficient", last_at
-    discontinuities = [i for i in range(1, len(rows)) if gaps.iloc[i] <= 0 or gaps.iloc[i] > cadence * 2.2]
-    if discontinuities:
-        rows = rows.iloc[discontinuities[-1]:]
     rows = rows.reset_index(drop=True)
-    ready = len(rows) >= 6 and last_at - float(rows["timestamp"].iloc[0]) >= 110 * 60
+    recent_cutoff = last_at - 60 * 60
+    recent_count = int((rows["timestamp"] >= recent_cutoff).sum())
+    ready = recent_count >= 3
     return rows, "ready" if ready else "insufficient", last_at

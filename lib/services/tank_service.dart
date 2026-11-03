@@ -6,6 +6,7 @@ import '../models/crayfish_batch.dart';
 import 'connectivity_service.dart';
 import 'database_service.dart';
 import 'sensor_service.dart';
+import '../utils/length_units.dart';
 import '../utils/prediction_timestamp.dart';
 
 DateTime? _readTankDate(dynamic value) =>
@@ -55,10 +56,10 @@ class SamplingEntry {
   final String id;
   final DateTime date;
   final double abw;
-  final double avgLength;
+  final double avgLengthInches;
   final int sampleSize;
   final double totalWeight;
-  final double totalLength;
+  final double totalLengthInches;
   final int liveCount;
   final bool isBaseline;
   final List<CrayfishMeasurement> measurements;
@@ -70,10 +71,10 @@ class SamplingEntry {
     this.id = '',
     required this.date,
     required this.abw,
-    required this.avgLength,
+    required this.avgLengthInches,
     required this.sampleSize,
     required this.totalWeight,
-    required this.totalLength,
+    required this.totalLengthInches,
     required this.liveCount,
     this.isBaseline = false,
     this.measurements = const [],
@@ -83,12 +84,12 @@ class SamplingEntry {
 class CrayfishMeasurement {
   final int sampleNumber;
   final double weightGrams;
-  final double lengthCm;
+  final double lengthInches;
 
   const CrayfishMeasurement({
     required this.sampleNumber,
     required this.weightGrams,
-    required this.lengthCm,
+    required this.lengthInches,
   });
 
   String get label => 'Crayfish $sampleNumber';
@@ -97,7 +98,7 @@ class CrayfishMeasurement {
     'sample_number': sampleNumber,
     'label': label,
     'weight_g': weightGrams,
-    'length_cm': lengthCm,
+    'length_inches': lengthInches,
   };
 
   static List<CrayfishMeasurement> parseList(dynamic raw) {
@@ -110,18 +111,24 @@ class CrayfishMeasurement {
       );
       final number = map['sample_number'];
       final weight = map['weight_g'];
-      final length = map['length_cm'];
-      if (number is! num || weight is! num || length is! num) continue;
+      final storedInches = map['length_inches'];
+      final legacyCentimeters = map['length_cm'];
+      final lengthInches = storedInches is num
+          ? storedInches.toDouble()
+          : legacyCentimeters is num
+          ? centimetersToInches(legacyCentimeters)
+          : null;
+      if (number is! num || weight is! num || lengthInches == null) continue;
       final measurement = CrayfishMeasurement(
         sampleNumber: number.toInt(),
         weightGrams: weight.toDouble(),
-        lengthCm: length.toDouble(),
+        lengthInches: lengthInches,
       );
       if (measurement.sampleNumber > 0 &&
           measurement.weightGrams.isFinite &&
           measurement.weightGrams > 0 &&
-          measurement.lengthCm.isFinite &&
-          measurement.lengthCm > 0) {
+          measurement.lengthInches.isFinite &&
+          measurement.lengthInches > 0) {
         result.add(measurement);
       }
     }
@@ -152,8 +159,8 @@ void validateCrayfishMeasurements(
     if (item.sampleNumber != i + 1 ||
         !item.weightGrams.isFinite ||
         item.weightGrams <= 0 ||
-        !item.lengthCm.isFinite ||
-        item.lengthCm <= 0) {
+        !item.lengthInches.isFinite ||
+        item.lengthInches <= 0) {
       throw ArgumentError(
         'Enter a valid positive weight and length for Crayfish ${i + 1}.',
       );
@@ -167,15 +174,25 @@ SamplingEntry? samplingEntryFromMap(String id, Map<String, dynamic> map) {
   final measurements = CrayfishMeasurement.parseList(map['measurements']);
   final legacySampleSize = (map['sample_size'] as num?)?.toInt() ?? 0;
   final legacyWeight = (map['total_weight'] as num?)?.toDouble() ?? 0.0;
-  final legacyLength = (map['total_length'] as num?)?.toDouble() ?? 0.0;
+  final storedTotalLengthInches = (map['total_length_inches'] as num?)
+      ?.toDouble();
+  final legacyTotalLengthCentimeters = (map['total_length'] as num?)
+      ?.toDouble();
   final hasMeasurements = measurements.isNotEmpty;
   final count = hasMeasurements ? measurements.length : legacySampleSize;
   final totalWeight = hasMeasurements
       ? measurements.fold<double>(0, (total, item) => total + item.weightGrams)
       : legacyWeight;
-  final totalLength = hasMeasurements
-      ? measurements.fold<double>(0, (total, item) => total + item.lengthCm)
-      : legacyLength;
+  final totalLengthInches = hasMeasurements
+      ? measurements.fold<double>(0, (total, item) => total + item.lengthInches)
+      : storedTotalLengthInches ??
+            (legacyTotalLengthCentimeters == null
+                ? 0.0
+                : centimetersToInches(legacyTotalLengthCentimeters));
+  final legacyAverageLengthCentimeters = (map['avg_body_length'] as num?)
+      ?.toDouble();
+  final storedAverageLengthInches = (map['avg_body_length_inches'] as num?)
+      ?.toDouble();
   return SamplingEntry(
     id: id,
     date: date,
@@ -186,16 +203,24 @@ SamplingEntry? samplingEntryFromMap(String id, Map<String, dynamic> map) {
             sampleSize: map['sample_size'] as num?,
             legacyAverage: (map['avg_body_weight'] as num?)?.toDouble(),
           ),
-    avgLength: hasMeasurements
-        ? totalLength / count
+    avgLengthInches: hasMeasurements
+        ? totalLengthInches / count
         : deriveSamplingAverage(
-            total: map['total_length'] as num?,
+            total:
+                storedTotalLengthInches ??
+                (legacyTotalLengthCentimeters == null
+                    ? null
+                    : centimetersToInches(legacyTotalLengthCentimeters)),
             sampleSize: map['sample_size'] as num?,
-            legacyAverage: (map['avg_body_length'] as num?)?.toDouble(),
+            legacyAverage:
+                storedAverageLengthInches ??
+                (legacyAverageLengthCentimeters == null
+                    ? null
+                    : centimetersToInches(legacyAverageLengthCentimeters)),
           ),
     sampleSize: count,
     totalWeight: totalWeight,
-    totalLength: totalLength,
+    totalLengthInches: totalLengthInches,
     liveCount: (map['live_count'] as num?)?.toInt() ?? 0,
     isBaseline: map['is_baseline'] == true,
     measurements: measurements,
@@ -210,7 +235,7 @@ class TankActivity {
   final int timestamp;
   final int? sampleSize;
   final double? abw;
-  final double? avgLength;
+  final double? avgLengthInches;
 
   TankActivity({
     required this.action,
@@ -220,7 +245,7 @@ class TankActivity {
     this.timestamp = 0,
     this.sampleSize,
     this.abw,
-    this.avgLength,
+    this.avgLengthInches,
   });
 }
 
@@ -230,7 +255,7 @@ TankActivity _buildTankActivity(
   DateTime date, {
   int? sampleSize,
   double? abw,
-  double? avgLength,
+  double? avgLengthInches,
 }) {
   final localDate = date.toLocal();
   const months = [
@@ -263,7 +288,7 @@ TankActivity _buildTankActivity(
     timestamp: localDate.millisecondsSinceEpoch,
     sampleSize: sampleSize,
     abw: abw,
-    avgLength: avgLength,
+    avgLengthInches: avgLengthInches,
   );
 }
 
@@ -311,9 +336,9 @@ class TankService extends ChangeNotifier {
 
   int _sampleCount = 0;
   double _initialWeight = 0.0;
-  double _initialLength = 0.0;
+  double _initialLengthInches = 0.0;
   double _totalSampleWeight = 0.0;
-  double _totalSampleLength = 0.0;
+  double _totalSampleLengthInches = 0.0;
   List<SamplingEntry> _samplingHistory = [];
   String? _lastSamplingDocId;
   List<MortalityEntry> _mortalityHistory = [];
@@ -415,9 +440,9 @@ class TankService extends ChangeNotifier {
   int get sampleCount => _sampleCount;
   int get currentSamplingSize => baselineSamplingSize(_sampleCount);
   double get initialWeight => _initialWeight;
-  double get initialLength => _initialLength;
+  double get initialLengthInches => _initialLengthInches;
   double get initialTotalWeight => _totalSampleWeight;
-  double get initialTotalLength => _totalSampleLength;
+  double get initialTotalLengthInches => _totalSampleLengthInches;
 
   List<SamplingEntry> get samplingHistory =>
       List.unmodifiable(_samplingHistory);
@@ -436,7 +461,8 @@ class TankService extends ChangeNotifier {
       final initialCount = batch?.initialCount ?? _initialCount;
       final baselineCount = baseline?.sampleSize ?? _sampleCount;
       final initialAbw = baseline?.abw ?? _initialWeight;
-      final initialAbl = baseline?.avgLength ?? _initialLength;
+      final initialAblInches =
+          baseline?.avgLengthInches ?? _initialLengthInches;
       final baselineDescription = baselineCount > 0
           ? '; baseline sample: $baselineCount crayfish'
           : '';
@@ -448,7 +474,7 @@ class TankService extends ChangeNotifier {
           batch?.stockingDate ?? _stockingDate,
           sampleSize: baselineCount > 0 ? baselineCount : null,
           abw: initialAbw > 0 ? initialAbw : null,
-          avgLength: initialAbl > 0 ? initialAbl : null,
+          avgLengthInches: initialAblInches > 0 ? initialAblInches : null,
         ),
       );
     }
@@ -457,12 +483,12 @@ class TankService extends ChangeNotifier {
       entries.add(
         _buildTankActivity(
           'Recorded sampling: ${sample.abw.toStringAsFixed(2)}g ABW, '
-              '${sample.avgLength.toStringAsFixed(2)}cm ABL',
+              '${sample.avgLengthInches.toStringAsFixed(2)} in ABL',
           'sampling',
           sample.date,
           sampleSize: sample.sampleSize,
           abw: sample.abw,
-          avgLength: sample.avgLength,
+          avgLengthInches: sample.avgLengthInches,
         ),
       );
     }
@@ -817,9 +843,9 @@ class TankService extends ChangeNotifier {
     _totalHarvested = 0;
     _sampleCount = 0;
     _initialWeight = 0.0;
-    _initialLength = 0.0;
+    _initialLengthInches = 0.0;
     _totalSampleWeight = 0.0;
-    _totalSampleLength = 0.0;
+    _totalSampleLengthInches = 0.0;
     _isInitialized = false;
     _selectedBatchId = null;
     _currentBatchId = null;
@@ -935,8 +961,8 @@ class TankService extends ChangeNotifier {
           if (data == null) return;
           final entry = samplingEntryFromMap('baseline', data);
           if (entry == null || entry.sampleSize <= 0) return;
-          if (entry.abw > 0 && entry.avgLength > 0) {
-            summaries[batch.batchId] = [entry.abw, entry.avgLength];
+          if (entry.abw > 0 && entry.avgLengthInches > 0) {
+            summaries[batch.batchId] = [entry.abw, entry.avgLengthInches];
           }
         } catch (e) {
           debugPrint(
@@ -952,7 +978,8 @@ class TankService extends ChangeNotifier {
     _batches = _batches.map((batch) {
       final values = summaries[batch.batchId];
       if (values == null ||
-          (batch.initialAbw == values[0] && batch.initialAbl == values[1])) {
+          (batch.initialAbw == values[0] &&
+              batch.initialAblInches == values[1])) {
         return batch;
       }
       changed = true;
@@ -993,11 +1020,12 @@ class TankService extends ChangeNotifier {
           final entry = samplingEntryFromMap('', record);
           if (entry == null) return;
           final hasAbwSource = entry.sampleSize > 0 && entry.abw > 0;
-          final hasAblSource = entry.sampleSize > 0 && entry.avgLength > 0;
+          final hasAblSource =
+              entry.sampleSize > 0 && entry.avgLengthInches > 0;
           if (!hasAbwSource && !hasAblSource) return;
           summaries[batch.batchId] = [
             hasAbwSource ? entry.abw : batch.finalAbw,
-            hasAblSource ? entry.avgLength : batch.finalAbl,
+            hasAblSource ? entry.avgLengthInches : batch.finalAblInches,
           ];
         } catch (e) {
           debugPrint(
@@ -1034,19 +1062,19 @@ class TankService extends ChangeNotifier {
     _totalHarvested = 0;
     _sampleCount = 0;
     _totalSampleWeight = 0.0;
-    _totalSampleLength = 0.0;
+    _totalSampleLengthInches = 0.0;
     _initialWeight = 0.0;
-    _initialLength = 0.0;
+    _initialLengthInches = 0.0;
   }
 
   void _restoreFromBatchRecord(CrayfishBatch batch) {
     _initialCount = batch.initialCount;
     _initialWeight = batch.initialAbw;
-    _initialLength = batch.initialAbl;
+    _initialLengthInches = batch.initialAblInches;
     _stockingDate = batch.stockingDate;
     _sampleCount = batch.sampleCount;
     _totalSampleWeight = batch.initialTotalWeight;
-    _totalSampleLength = batch.initialTotalLength;
+    _totalSampleLengthInches = batch.initialTotalLengthInches;
     _mortality = batch.totalMortality;
     _totalHarvested = batch.harvestCount;
     _isInitialized = true;
@@ -1075,7 +1103,8 @@ class TankService extends ChangeNotifier {
         _hasTankDocument = true;
         final nowInitialized = data['is_initialized'] == true;
         final rawBatchId = data['current_batch_id'] as String?;
-        final nextCurrentBatchId = rawBatchId == null || rawBatchId.trim().isEmpty
+        final nextCurrentBatchId =
+            rawBatchId == null || rawBatchId.trim().isEmpty
             ? null
             : rawBatchId.trim();
         final currentBatchChanged = _currentBatchId != nextCurrentBatchId;
@@ -1179,9 +1208,9 @@ class TankService extends ChangeNotifier {
             if (baseline != null && baseline.sampleSize > 0) {
               _sampleCount = baseline.sampleSize;
               _totalSampleWeight = baseline.totalWeight;
-              _totalSampleLength = baseline.totalLength;
+              _totalSampleLengthInches = baseline.totalLengthInches;
               _initialWeight = baseline.abw;
-              _initialLength = baseline.avgLength;
+              _initialLengthInches = baseline.avgLengthInches;
             }
             _lastSamplingDocId = lastId;
             notifyListeners();
@@ -1269,8 +1298,7 @@ class TankService extends ChangeNotifier {
             ? _batches.where((b) => b.status == 'active').firstOrNull
             : _batches
                   .where(
-                    (b) =>
-                        b.batchId == _currentBatchId && b.status == 'active',
+                    (b) => b.batchId == _currentBatchId && b.status == 'active',
                   )
                   .firstOrNull;
         if (activeBatch != null) {
@@ -1308,11 +1336,11 @@ class TankService extends ChangeNotifier {
     _totalHarvested = batch.harvestCount;
     _stockingDate = batch.stockingDate;
     _initialWeight = batch.initialAbw;
-    _initialLength = batch.initialAbl;
+    _initialLengthInches = batch.initialAblInches;
     _isInitialized = true;
     _sampleCount = batch.sampleCount;
     _totalSampleWeight = batch.initialTotalWeight;
-    _totalSampleLength = batch.initialTotalLength;
+    _totalSampleLengthInches = batch.initialTotalLengthInches;
     _resubscribeToBatch();
     notifyListeners();
   }
@@ -1344,9 +1372,9 @@ class TankService extends ChangeNotifier {
       0,
       (total, item) => total + item.weightGrams,
     );
-    final totalLength = measurements.fold<double>(
+    final totalLengthInches = measurements.fold<double>(
       0,
-      (total, item) => total + item.lengthCm,
+      (total, item) => total + item.lengthInches,
     );
 
     final requestedName = batchName?.trim() ?? '';
@@ -1388,7 +1416,7 @@ class TankService extends ChangeNotifier {
       }
 
       final initialWeight = totalWeight / sampleCount;
-      final initialLength = totalLength / sampleCount;
+      final initialLengthInches = totalLengthInches / sampleCount;
       final batchRef = _batchesRef.doc(currentId);
       final baselineRef = _samplingRef(currentId).doc('baseline');
       await _fs.runTransaction((transaction) async {
@@ -1433,9 +1461,9 @@ class TankService extends ChangeNotifier {
       _stockingDate = date;
       _sampleCount = sampleCount;
       _totalSampleWeight = totalWeight;
-      _totalSampleLength = totalLength;
+      _totalSampleLengthInches = totalLengthInches;
       _initialWeight = initialWeight;
-      _initialLength = initialLength;
+      _initialLengthInches = initialLengthInches;
       notifyListeners();
       return;
     }
@@ -1461,9 +1489,11 @@ class TankService extends ChangeNotifier {
     _stockingDate = date;
     _sampleCount = sampleCount;
     _totalSampleWeight = totalWeight;
-    _totalSampleLength = totalLength;
+    _totalSampleLengthInches = totalLengthInches;
     _initialWeight = sampleCount > 0 ? (totalWeight / sampleCount) : 0.0;
-    _initialLength = sampleCount > 0 ? (totalLength / sampleCount) : 0.0;
+    _initialLengthInches = sampleCount > 0
+        ? (totalLengthInches / sampleCount)
+        : 0.0;
     _isInitialized = true;
     _mortality = 0;
     _totalHarvested = 0;
@@ -1482,7 +1512,8 @@ class TankService extends ChangeNotifier {
         final tankSnapshot = await transaction.get(_tankRef);
         final newBatchSnapshot = await transaction.get(newBatchRef);
         final rawCurrentId = tankSnapshot.data()?['current_batch_id'];
-        final serverCurrentId = rawCurrentId is String && rawCurrentId.trim().isNotEmpty
+        final serverCurrentId =
+            rawCurrentId is String && rawCurrentId.trim().isNotEmpty
             ? rawCurrentId.trim()
             : null;
         if (serverCurrentId != expectedCurrentBatchId) {
@@ -1500,7 +1531,8 @@ class TankService extends ChangeNotifier {
           previousBatchRef = _batchesRef.doc(expectedCurrentBatchId);
           final previousSnapshot = await transaction.get(previousBatchRef);
           previousBatchData = previousSnapshot.data();
-          if (!previousSnapshot.exists || previousBatchData == null ||
+          if (!previousSnapshot.exists ||
+              previousBatchData == null ||
               previousBatchData['batch_status'] != 'active') {
             throw StateError(
               'The selected batch is no longer active. Refresh before starting another batch.',
@@ -1584,10 +1616,10 @@ class TankService extends ChangeNotifier {
     );
     final length = measurements.fold<double>(
       0,
-      (total, item) => total + item.lengthCm,
+      (total, item) => total + item.lengthInches,
     );
     final abw = weight / count;
-    final avgLength = length / count;
+    final avgLengthInches = length / count;
     final samplingRecordRef = _samplingRef(batchId).doc();
     var recordedLiveCount = inTankCount;
     try {
@@ -1644,10 +1676,10 @@ class TankService extends ChangeNotifier {
         id: samplingRecordRef.id,
         date: now,
         abw: abw,
-        avgLength: avgLength,
+        avgLengthInches: avgLengthInches,
         sampleSize: count,
         totalWeight: weight,
-        totalLength: length,
+        totalLengthInches: length,
         liveCount: recordedLiveCount,
         measurements: measurements,
       );
@@ -1700,18 +1732,18 @@ class TankService extends ChangeNotifier {
     );
     final length = measurements.fold<double>(
       0,
-      (total, item) => total + item.lengthCm,
+      (total, item) => total + item.lengthInches,
     );
     final abw = weight / count;
-    final avgLength = length / count;
+    final avgLengthInches = length / count;
     final updated = SamplingEntry(
       id: samplingDocumentId,
       date: existing.date,
       abw: abw,
-      avgLength: avgLength,
+      avgLengthInches: avgLengthInches,
       sampleSize: count,
       totalWeight: weight,
-      totalLength: length,
+      totalLengthInches: length,
       liveCount: existing.liveCount,
       measurements: measurements,
     );
@@ -1721,7 +1753,8 @@ class TankService extends ChangeNotifier {
         final tankSnapshot = await transaction.get(_tankRef);
         final batchSnapshot = await transaction.get(_batchesRef.doc(batchId));
         final samplingSnapshot = await transaction.get(samplingRef);
-        if (!batchSnapshot.exists || batchSnapshot.data() == null ||
+        if (!batchSnapshot.exists ||
+            batchSnapshot.data() == null ||
             !samplingSnapshot.exists) {
           throw StateError('The sampling record or batch no longer exists.');
         }

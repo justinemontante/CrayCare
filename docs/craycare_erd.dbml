@@ -291,7 +291,7 @@ Table sampling_measurements [note: 'Normalized child table with one row for each
   sample_number int [not null, note: 'Sequential within one sampling session, starting at 1']
   label varchar [not null, note: 'Human-readable label, such as Crayfish 1']
   weight_g decimal(10,2) [not null, note: 'Individual crayfish weight in grams; must be greater than zero']
-  length_cm decimal(10,2) [not null, note: 'Individual crayfish length in centimeters; must be greater than zero']
+  length_inches decimal(10,2) [not null, note: 'Individual crayfish length in inches; must be greater than zero']
   Indexes {
     (tank_id, batch_id, sampling_id, sample_number) [pk]
   }

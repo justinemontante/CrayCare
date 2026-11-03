@@ -15,6 +15,7 @@ class AnalyticsLineChart extends StatefulWidget {
   final double? thresholdMax;
   final int decimalPlaces;
   final bool initialScrollToEnd;
+  final bool connectAcrossMissingData;
 
   const AnalyticsLineChart({
     super.key,
@@ -30,6 +31,7 @@ class AnalyticsLineChart extends StatefulWidget {
     this.thresholdMax,
     this.decimalPlaces = 1,
     this.initialScrollToEnd = false,
+    this.connectAcrossMissingData = false,
   });
 
   @override
@@ -58,7 +60,9 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     if (widget.selectedIndex != oldWidget.selectedIndex &&
         widget.selectedIndex != null &&
         widget.selectedIndex! >= 0 &&
-        widget.selectedIndex! < widget.data.length) {
+        widget.selectedIndex! < widget.data.length &&
+        (!widget.connectAcrossMissingData ||
+            !widget.data[widget.selectedIndex!].isNaN)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _scrollToIndex(widget.selectedIndex!));
       });
@@ -119,8 +123,24 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     final stepX = chartW / (data.length - 1);
     if (stepX <= 0) return;
     final virtualDx = details.localPosition.dx + _scrollOffset;
-    final index =
-        ((virtualDx - padL) / stepX).round().clamp(0, data.length - 1);
+    var index = ((virtualDx - padL) / stepX).round().clamp(0, data.length - 1);
+    if (widget.connectAcrossMissingData && data[index].isNaN) {
+      int? nearestValidIndex;
+      for (var distance = 1; distance < data.length; distance++) {
+        final left = index - distance;
+        final right = index + distance;
+        if (left >= 0 && !data[left].isNaN) {
+          nearestValidIndex = left;
+          break;
+        }
+        if (right < data.length && !data[right].isNaN) {
+          nearestValidIndex = right;
+          break;
+        }
+      }
+      if (nearestValidIndex == null) return;
+      index = nearestValidIndex;
+    }
     widget.onSelectedIndexChanged?.call(index);
   }
 
@@ -184,8 +204,9 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTapUp: _onTapUp,
-                  onHorizontalDragUpdate:
-                      scrollable ? _onHorizontalDragUpdate : null,
+                  onHorizontalDragUpdate: scrollable
+                      ? _onHorizontalDragUpdate
+                      : null,
                   child: CustomPaint(
                     painter: _LineChartPainter(
                       widget.data,
@@ -201,13 +222,16 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                       thresholdMax: widget.thresholdMax,
                       scrollOffset: _scrollOffset,
                       virtualWidth: vw,
+                      connectAcrossMissingData: widget.connectAcrossMissingData,
                     ),
                     size: Size(_visibleWidth, chartH),
                   ),
                 ),
                 if (curIdx != null &&
                     curIdx >= 0 &&
-                    curIdx < widget.data.length)
+                    curIdx < widget.data.length &&
+                    (!widget.connectAcrossMissingData ||
+                        !widget.data[curIdx].isNaN))
                   Positioned(
                     top: 3,
                     left: _tooltipLeft(_visibleWidth),
@@ -215,11 +239,7 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                   ),
               ],
             ),
-            if (scrollable)
-              SizedBox(
-                height: 20,
-                child: _buildScrollBar(vw),
-              ),
+            if (scrollable) SizedBox(height: 20, child: _buildScrollBar(vw)),
           ],
         );
       },
@@ -309,6 +329,9 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
 
   Widget _buildTooltip(int index) {
     final val = widget.data[index];
+    if (widget.connectAcrossMissingData && val.isNaN) {
+      return const SizedBox.shrink();
+    }
     final label = (widget.labels != null && index < widget.labels!.length)
         ? widget.labels![index]
         : '';
@@ -346,6 +369,7 @@ class _LineChartPainter extends CustomPainter {
   final double? thresholdMax;
   final double scrollOffset;
   final double virtualWidth;
+  final bool connectAcrossMissingData;
 
   _LineChartPainter(
     this.data,
@@ -361,6 +385,7 @@ class _LineChartPainter extends CustomPainter {
     this.thresholdMax,
     this.scrollOffset = 0.0,
     this.virtualWidth = 0.0,
+    this.connectAcrossMissingData = false,
   });
 
   @override
@@ -381,8 +406,7 @@ class _LineChartPainter extends CustomPainter {
 
     final vw = virtualWidth > size.width ? virtualWidth : size.width;
     final virtualChartW = vw - padL - padR;
-    final stepX =
-        data.length > 1 ? virtualChartW / (data.length - 1) : 0.0;
+    final stepX = data.length > 1 ? virtualChartW / (data.length - 1) : 0.0;
 
     final visibleLeft = padL;
     final visibleRight = size.width - padR;
@@ -429,9 +453,7 @@ class _LineChartPainter extends CustomPainter {
     }
 
     canvas.save();
-    canvas.clipRect(
-      Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height),
-    );
+    canvas.clipRect(Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height));
 
     final paintLine = Paint()
       ..color = color
@@ -444,10 +466,7 @@ class _LineChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [
-          color.withValues(alpha: 0.15),
-          color.withValues(alpha: 0.0),
-        ],
+        colors: [color.withValues(alpha: 0.15), color.withValues(alpha: 0.0)],
       ).createShader(Rect.fromLTWH(padL, padT, visibleChartW, chartH));
 
     final path = Path();
@@ -457,7 +476,7 @@ class _LineChartPainter extends CustomPainter {
     var current = <Offset>[];
     for (int i = 0; i < data.length; i++) {
       if (data[i].isNaN) {
-        if (current.isNotEmpty) {
+        if (!connectAcrossMissingData && current.isNotEmpty) {
           segments.add(current);
           current = [];
         }
@@ -484,9 +503,8 @@ class _LineChartPainter extends CustomPainter {
       fillPath.moveTo(seg.first.dx, padT + chartH);
       fillPath.lineTo(seg.first.dx, seg.first.dy);
 
-      // Sensor analytics should not invent intermediate extrema. Draw
-      // straight segments between measured/bucketed points; NaN values already
-      // split the series into separate segments for real data gaps.
+      // When enabled for the 24-hour view, join measured points across missing
+      // buckets without drawing or inventing sensor values for those gaps.
       for (int i = 1; i < seg.length; i++) {
         path.lineTo(seg[i].dx, seg[i].dy);
         fillPath.lineTo(seg[i].dx, seg[i].dy);
@@ -561,9 +579,10 @@ class _LineChartPainter extends CustomPainter {
             : (scrollOffset / stepX).floor().clamp(0, count - 1);
         final lastVisibleIndex = count == 1
             ? 0
-            : ((scrollOffset + visibleChartW) / stepX)
-                  .ceil()
-                  .clamp(0, count - 1);
+            : ((scrollOffset + visibleChartW) / stepX).ceil().clamp(
+                0,
+                count - 1,
+              );
         final visiblePointCount = lastVisibleIndex - firstVisibleIndex + 1;
         final visibleLabelCount = min(8, visiblePointCount);
         final visibleIndices = List<int>.generate(visibleLabelCount, (n) {
@@ -600,22 +619,15 @@ class _LineChartPainter extends CustomPainter {
             textDirection: TextDirection.ltr,
           )..layout();
           labelPainters.add(tp);
-          labelExtents.add(
-            tp.width * cosA.abs() + tp.height * sinA.abs(),
-          );
+          labelExtents.add(tp.width * cosA.abs() + tp.height * sinA.abs());
         }
-        final firstPointX =
-            padL + visibleIndices.first * stepX - scrollOffset;
-        final lastPointX =
-            padL + visibleIndices.last * stepX - scrollOffset;
+        final firstPointX = padL + visibleIndices.first * stepX - scrollOffset;
+        final lastPointX = padL + visibleIndices.last * stepX - scrollOffset;
         // Keep the last rotated timestamp inside the card, with its visible
         // right edge ending at the final plotted point. Spread the anchors
         // evenly between the first point and that safe endpoint.
         final firstLabelX = max(visibleLeft - 8.0, firstPointX - 8.0);
-        final lastLabelX = max(
-          firstLabelX,
-          lastPointX - labelExtents.last,
-        );
+        final lastLabelX = max(firstLabelX, lastPointX - labelExtents.last);
         final labelSpacing = visibleIndices.length > 1
             ? (lastLabelX - firstLabelX) / (visibleIndices.length - 1)
             : 0.0;
@@ -649,5 +661,6 @@ class _LineChartPainter extends CustomPainter {
       oldDelegate.thresholdMin != thresholdMin ||
       oldDelegate.thresholdMax != thresholdMax ||
       oldDelegate.scrollOffset != scrollOffset ||
-      oldDelegate.virtualWidth != virtualWidth;
+      oldDelegate.virtualWidth != virtualWidth ||
+      oldDelegate.connectAcrossMissingData != connectAcrossMissingData;
 }

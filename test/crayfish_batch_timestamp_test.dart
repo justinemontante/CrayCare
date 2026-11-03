@@ -122,7 +122,7 @@ void main() {
       });
 
       expect(batch.initialAbw, 25);
-      expect(batch.initialAbl, 9);
+      expect(batch.initialAblInches, closeTo(9 / 2.54, 0.00001));
       expect(batch.toJson().containsKey('initial_abw'), isFalse);
       expect(batch.toJson().containsKey('initial_abl'), isFalse);
       expect(batch.toJson().containsKey('final_abw'), isFalse);
@@ -143,12 +143,12 @@ void main() {
       });
 
       expect(batch.initialAbw, 25);
-      expect(batch.initialAbl, 9);
+      expect(batch.initialAblInches, closeTo(9 / 2.54, 0.00001));
       expect(batch.finalAbw, 80);
-      expect(batch.finalAbl, 13);
+      expect(batch.finalAblInches, closeTo(13 / 2.54, 0.00001));
       final hydrated = batch.withFinalSamplingAverages(abw: 82, abl: 14);
       expect(hydrated.finalAbw, 82);
-      expect(hydrated.finalAbl, 14);
+      expect(hydrated.finalAblInches, 14);
       expect(batch.finalAbw, 80);
     });
 
