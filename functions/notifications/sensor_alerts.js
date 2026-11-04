@@ -75,6 +75,16 @@ function stateForSensor(sensorName, value, range) {
 function stateChange(sensorName, value, previous, current) {
   if (current.state === previous.state && current.dir === previous.dir) return [];
   const svcKey = SENSOR_MAP[sensorName];
+  if (svcKey === "turb") {
+    const highAlert = ["critical", "warning"].includes(current.state) &&
+      current.dir === "high";
+    const highAlertResolved = current.state === "normal" &&
+      previous.dir === "high" &&
+      ["critical", "warning"].includes(previous.state);
+    // Zero/low turbidity is clear water. Only the upper limit (and its
+    // recovery) may create turbidity push or inbox notifications.
+    if (!highAlert && !highAlertResolved) return [];
+  }
   if (current.state === "critical" || current.state === "warning") {
     return [{svcKey, val: value, threshold: current.threshold,
       dir: current.dir, state: current.state}];

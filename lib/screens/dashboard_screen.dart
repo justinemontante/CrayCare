@@ -360,7 +360,12 @@ class DashboardScreenState extends State<DashboardScreen>
     final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
     final error = ss.lastError;
     final syncing = ss.bufferedEntries > 0;
+    final pendingReadingCount = ss.bufferedEntries;
+    final pendingReadingLabel =
+        pendingReadingCount == 1 ? 'reading' : 'readings';
     final tankService = TankService.instance;
+    final showSyncingBanner = tankService.isInitialized &&
+        ss.initialDataLoaded && error == null && syncing;
 
     // Show the banner while the ESP is flushing its offline backlog even if
     // live data is already flowing again (store-and-forward in progress).
@@ -384,10 +389,8 @@ class DashboardScreenState extends State<DashboardScreen>
     } else if (!ss.initialDataLoaded) {
       message = 'Connecting to sensors...';
       bannerIcon = Icons.sensors_rounded;
-    } else if (syncing) {
-      final n = ss.bufferedEntries;
-      message =
-          'Syncing $n offline reading${n == 1 ? '' : 's'} captured during the outage…';
+    } else if (showSyncingBanner) {
+      message = 'Syncing offline readings';
       bannerIcon = Icons.sync_rounded;
     } else {
       message = 'Sensors offline — waiting for new readings';
@@ -409,28 +412,59 @@ class DashboardScreenState extends State<DashboardScreen>
         ),
       ),
       child: Row(
+        crossAxisAlignment: showSyncingBanner
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center,
         children: [
-          Icon(
-            bannerIcon,
-            size: 16,
-            color: isErrorState
-                ? const Color(0xFFD84315)
-                : const Color(0xFFF9A825),
+          Padding(
+            padding: EdgeInsets.only(top: showSyncingBanner ? 2 : 0),
+            child: Icon(
+              bannerIcon,
+              size: 16,
+              color: isErrorState
+                  ? const Color(0xFFD84315)
+                  : const Color(0xFFF9A825),
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              message,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: isErrorState
-                    ? const Color(0xFFBF360C)
-                    : const Color(0xFF795548),
-              ),
-            ),
+            child: showSyncingBanner
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Syncing offline readings…',
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF795548),
+                        ),
+                      ),
+                      Text(
+                        '$pendingReadingCount $pendingReadingLabel left to upload',
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF795548),
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: isErrorState
+                          ? const Color(0xFFBF360C)
+                          : const Color(0xFF795548),
+                    ),
+                  ),
           ),
         ],
       ),

@@ -135,10 +135,11 @@ long long firestoreTimestampMillis(const String& value) {
   return (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + millisPart;
 }
 
-#define FIREBASE_SEND_INTERVAL_MS 10000
+#define FIREBASE_SEND_INTERVAL_SECONDS 10
 #define HISTORY_SLOT_SECONDS 600        // fixed 10-minute history windows
 #define CONFIG_SYNC_INTERVAL_MS 60000   // thresholds re-sync; switch forces immediate
-#define FLUSH_INTERVAL_MS 1000           // flush backlog at 1 entry/sec (max)
+#define FLUSH_INTERVAL_MS 1000          // feeder/local log flush cadence
+#define BUFFERED_HISTORY_FLUSH_INTERVAL_MS 250
 #define NON_PH_SENSOR_POLL_MS 2000
 #define PH_SENSOR_POLL_MS 1000
 #define LIVE_SENSOR_AVERAGE_WINDOW_MS 5000UL
@@ -251,15 +252,16 @@ volatile bool firebaseAuthAttemptFailed = false;
 constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 15UL * 60UL * 1000UL;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
-unsigned long lastFirebaseSendTime = 0;
+time_t nextFirebaseSendEpoch = 0;
 time_t nextHistorySlotEndEpoch = 0;
 unsigned long lastFlushTime = 0;
+unsigned long lastBufferedHistoryFlushMs = 0;
 
 // ─── Offline buffer (LittleFS store-and-forward) ─────────────────────
 // History entries that fail to upload (WiFi outage / Firebase unreachable)
 // are appended here as Firestore wire-format JSON lines. When connectivity
-// returns, loop() flushes them oldest-first at 1 entry/sec, deleting each
-// line only after Firestore confirms the write (or finds a duplicate doc).
+// returns, loop() flushes up to two oldest rows per batch and deletes them
+// only after Firestore confirms the write (or finds a duplicate document).
 #define BUFFER_PATH "/buf/history.jsonl"
 bool littlefsMounted = false;
 bool feederLogsReady = true;
@@ -513,39 +515,43 @@ bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
 
 // Drop exactly the first valid line while preserving the entire backlog.
 // SD drains first (it holds the migrated oldest entries); LittleFS follows.
-static bool dropFirstIn(fs::FS& fs, const char* path, const char* tempPath) {
+static bool dropFirstIn(fs::FS& fs, const char* path, const char* tempPath,
+                        size_t entriesToDrop) {
+  if (entriesToDrop == 0) return true;
   if (!fs.exists(path)) return false;
   File src = fs.open(path, "r");
   if (!src) return false;
   File dst = fs.open(tempPath, "w");
   if (!dst) { src.close(); return false; }
 
-  bool dropped = false;
+  size_t dropped = 0;
   while (src.available()) {
     String line = src.readStringUntil('\n');
     line.trim();
     if (line.length() <= 10) continue;
-    if (!dropped) { dropped = true; continue; }
+    if (dropped < entriesToDrop) { dropped++; continue; }
     dst.println(line);
   }
   src.close();
   dst.close();
-  if (!dropped) { fs.remove(tempPath); return false; }
+  if (dropped != entriesToDrop) { fs.remove(tempPath); return false; }
   fs.remove(path);
   return fs.rename(tempPath, path);
 }
 
-bool bufferDropFirst(const String* ignoredLines, size_t ignoredCount) {
-  (void)ignoredLines;
-  (void)ignoredCount;
-  if (sdMounted && SD.exists(SD_BUFFER_PATH))
-    return dropFirstIn(SD, SD_BUFFER_PATH, SD_BUFFER_TMP);
+bool bufferDropFirst(size_t entriesToDrop, bool fromSd) {
+  if (entriesToDrop == 0) return true;
+  if (fromSd) {
+    if (!sdMounted) return false;
+    return dropFirstIn(SD, SD_BUFFER_PATH, SD_BUFFER_TMP, entriesToDrop);
+  }
   if (!littlefsMounted) return false;
-  return dropFirstIn(LittleFS, BUFFER_PATH, "/buf/history.tmp");
+  return dropFirstIn(LittleFS, BUFFER_PATH, "/buf/history.tmp", entriesToDrop);
 }
 
 // Read all buffered lines into a fixed array (bounded). SD first.
-size_t bufferReadAll(String* lines, size_t maxLines) {
+size_t bufferReadAll(String* lines, size_t maxLines, bool* fromSd = nullptr) {
+  if (fromSd) *fromSd = false;
   if (sdMounted && SD.exists(SD_BUFFER_PATH)) {
     File f = SD.open(SD_BUFFER_PATH, "r");
     if (f) {
@@ -556,7 +562,10 @@ size_t bufferReadAll(String* lines, size_t maxLines) {
         if (line.length() > 10) lines[n++] = line;
       }
       f.close();
-      if (n > 0) return n;
+      if (n > 0) {
+        if (fromSd) *fromSd = true;
+        return n;
+      }
     }
   }
   if (!littlefsMounted) return 0;
@@ -573,19 +582,14 @@ size_t bufferReadAll(String* lines, size_t maxLines) {
   return n;
 }
 
-// Upload the oldest buffered entry. Returns:
-//   true  -> entry uploaded (or dropped as duplicate) -> remove from buffer
-//   false -> still no connectivity -> keep in buffer and retry later
-bool flushOneBufferedEntry() {
-  String lines[32];
-  size_t n = bufferReadAll(lines, 32);
-  if (n == 0) return true;
-
+// Upload one queued row. The deterministic Firestore document ID makes a
+// create conflict (HTTP 409) proof that a previous attempt already succeeded.
+static bool uploadBufferedEntry(const String& queuedLine) {
   // Deterministic doc ID from local queue metadata. The metadata is not part
   // of the Firestore payload. Old buffer rows used captured_at_ms in their
   // payload, so retain that parser for rows queued by previous firmware.
   long long capMs = 0;
-  String payloadLine = lines[0];
+  String payloadLine = queuedLine;
   int separator = payloadLine.indexOf('\t');
   if (payloadLine.startsWith("@") && separator > 1) {
     capMs = atoll(payloadLine.substring(1, separator).c_str());
@@ -617,22 +621,48 @@ bool flushOneBufferedEntry() {
   String docId(docIdBuffer);
   String docPath = String("sensorIngestion/current/history/") + docId;
 
-  // Skip if already uploaded (crash between create and buffer-delete).
-  if (firestoreGetDoc(docPath.c_str())) {
-    Serial.println("[BUF] Duplicate found — dropping buffered entry");
-    return bufferDropFirst(lines, n);
-  }
-
   // 7-arg form (collection, docId, content, mask) avoids the ambiguous
   // 6-arg overload (documentPath+content vs collectionId+documentId).
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
                                         "sensorIngestion/current/history",
                                         docId.c_str(), payloadLine.c_str(), "")) {
     Serial.printf("[BUF] Flushed entry -> %s\n", docPath.c_str());
-    return bufferDropFirst(lines, n);
+    reportCloudResult(true);
+    return true;
   }
+  if (fbdo.httpCode() == 409) {
+    Serial.printf("[BUF] Already uploaded -> %s\n", docPath.c_str());
+    reportCloudResult(true);
+    return true;
+  }
+  reportCloudResult(false);
   Serial.printf("[BUF] Flush failed (%s) — will retry\n", fbdo.errorReason().c_str());
   return false;
+}
+
+// Upload up to two oldest rows, then compact the local queue once. This keeps
+// ordering and crash-safe retry behavior while avoiding a full queue rewrite
+// after every successful row.
+bool flushBufferedBatch() {
+  constexpr size_t MAX_BATCH = 2;
+  String lines[MAX_BATCH];
+  bool fromSd = false;
+  const size_t count = bufferReadAll(lines, MAX_BATCH, &fromSd);
+  if (count == 0) return true;
+
+  size_t uploaded = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (!uploadBufferedEntry(lines[i])) break;
+    uploaded++;
+  }
+  if (uploaded == 0) return false;
+
+  if (!bufferDropFirst(uploaded, fromSd)) {
+    Serial.println("[BUF] Could not compact uploaded rows; they will retry safely");
+    return false;
+  }
+  Serial.printf("[BUF] Flushed %u queued row(s)\n", (unsigned)uploaded);
+  return true;
 }
 unsigned long lastConfigSyncTime = 0;
 unsigned long lastAssignmentCheckMs = 0;
@@ -3188,7 +3218,7 @@ bool handleCalibrationControlCommand(String& cmd) {
       // fixed wall-clock boundary after normal collection restarts.
       nextHistorySlotEndEpoch = 0;
       saveHistoryWindowCheckpoint();
-      lastFirebaseSendTime = millis();
+      nextFirebaseSendEpoch = 0;
       lastWifiReconnectTime = millis();
       Firebase.reconnectWiFi(true);
       WiFi.reconnect();
@@ -4600,18 +4630,40 @@ void loop() {
     printRawReading();
   }
 
-  if (networkAvailable && hasCurrentTankAssignment() &&
-      now - lastFirebaseSendTime >= FIREBASE_SEND_INTERVAL_MS) {
-    // Firestore is synchronous, so maintain at least a 10-second interval
-    // between attempts. A slow request coalesces missed intervals; never
-    // queue catch-up writes. Sensor and LCD tasks continue during the request.
-    // ESP supplies the capture-time recorded_at Timestamp; Functions normalize
-    // legacy staged events before routing them into canonical sensor records.
-    // Whether this succeeds or fails, wait for the next normal slot. Immediate
-    // retries amplify weak-link TLS failures and can exhaust the SSL layer.
-    sendLatestToFirestore();
-    lastFirebaseSendTime = millis();
-    now = lastFirebaseSendTime;
+  // Align latest-document writes to wall-clock 10-second boundaries (:00,
+  // :10, :20, ...). Sampling continues independently between these writes.
+  // Missed slots while offline or blocked are skipped; no catch-up burst.
+  time_t latestSendNow = 0;
+  time(&latestSendNow);
+  if (latestSendNow >= 1577836800) {
+    if (nextFirebaseSendEpoch == 0) {
+      const time_t interval = FIREBASE_SEND_INTERVAL_SECONDS;
+      nextFirebaseSendEpoch =
+          ((latestSendNow + interval - 1) / interval) * interval;
+    }
+    if (latestSendNow >= nextFirebaseSendEpoch) {
+      const bool stillOnScheduledSlot =
+          latestSendNow / FIREBASE_SEND_INTERVAL_SECONDS ==
+          nextFirebaseSendEpoch / FIREBASE_SEND_INTERVAL_SECONDS;
+      if (stillOnScheduledSlot && networkAvailable &&
+          hasCurrentTankAssignment()) {
+        // Whether it succeeds or fails, wait for the next wall-clock slot.
+        // Immediate retries amplify weak-link TLS failures and can exhaust
+        // the SSL layer.
+        sendLatestToFirestore();
+        now = millis();
+      }
+      // Recompute after a possible synchronous Firestore call, so a slow
+      // request skips any slots that elapsed while it was in progress.
+      time(&latestSendNow);
+      if (latestSendNow >= 1577836800) {
+        nextFirebaseSendEpoch =
+            (latestSendNow / FIREBASE_SEND_INTERVAL_SECONDS + 1) *
+            FIREBASE_SEND_INTERVAL_SECONDS;
+      } else {
+        nextFirebaseSendEpoch = 0;
+      }
+    }
   }
 
   // Outage probe: the ONLY network call allowed in outage mode. A single
@@ -4715,27 +4767,27 @@ void loop() {
     }
   }
 
-  // ─── Offline buffer flush (store-and-forward) ───
-  // Runs whenever Firebase is reachable; 1 entry/sec max so the live
-  // 5-sec + 10-min writes are never starved. Oldest entry goes first.
+  // ─── Local feeder-log flush (store-and-forward) ───
   if (now - lastFlushTime >= FLUSH_INTERVAL_MS) {
     queuePendingHistoryIfPossible();
     if (networkAvailable && hasCurrentTankAssignment() && ensureFirebaseReady()) {
       flushPendingLocalFeedLog();
       if (sdMounted || littlefsMounted) flushOneFeederLog();
     }
-    if (networkAvailable && hasCurrentTankAssignment() && littlefsMounted &&
-        countBufferedEntries() > 0) {
-      if (ensureFirebaseReady()) {
-        if (flushOneBufferedEntry()) {
-          Serial.printf("[BUF] Flushed — %u remaining\n",
-                        (unsigned)countBufferedEntries());
-        }
-        // flushOneBufferedEntry()==false -> still offline, keep for retry.
-      }
-    }
     lastFlushTime = millis();
     now = lastFlushTime;
+  }
+
+  // Drain sensor history independently from feeder logs. Try up to two oldest
+  // rows every 250 ms, then rewrite the local queue only once per batch. The
+  // REST request duration and network determine the actual upload rate.
+  if (now - lastBufferedHistoryFlushMs >= BUFFERED_HISTORY_FLUSH_INTERVAL_MS) {
+    if (networkAvailable && hasCurrentTankAssignment() &&
+        (sdMounted || littlefsMounted) && ensureFirebaseReady()) {
+      flushBufferedBatch();
+    }
+    lastBufferedHistoryFlushMs = millis();
+    now = lastBufferedHistoryFlushMs;
   }
 
   if (now - lastHistoryCheckpointMs >= 60000UL) {

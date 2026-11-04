@@ -13,6 +13,8 @@ class AnalyticsLineChart extends StatefulWidget {
   final ValueChanged<int?>? onSelectedIndexChanged;
   final double? thresholdMin;
   final double? thresholdMax;
+  final double? axisMinY;
+  final int? axisDecimalPlaces;
   final int decimalPlaces;
   final bool initialScrollToEnd;
   final bool connectAcrossMissingData;
@@ -29,6 +31,8 @@ class AnalyticsLineChart extends StatefulWidget {
     this.onSelectedIndexChanged,
     this.thresholdMin,
     this.thresholdMax,
+    this.axisMinY,
+    this.axisDecimalPlaces,
     this.decimalPlaces = 1,
     this.initialScrollToEnd = false,
     this.connectAcrossMissingData = false,
@@ -179,6 +183,11 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
       minVal = originalMin - padding;
       maxVal = originalMax + padding;
     }
+    // Sensor readings are non-negative. Keep dynamic scaling for detail, but
+    // never let the axis padding create negative tick labels. Turbidity can
+    // additionally request an exact zero baseline.
+    minVal = max(0.0, widget.axisMinY ?? minVal);
+    if (maxVal <= minVal) maxVal = minVal + 1.0;
     final range = maxVal - minVal;
 
     return LayoutBuilder(
@@ -220,6 +229,7 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                       selectedIndex: curIdx,
                       thresholdMin: widget.thresholdMin,
                       thresholdMax: widget.thresholdMax,
+                      axisDecimalPlaces: widget.axisDecimalPlaces,
                       scrollOffset: _scrollOffset,
                       virtualWidth: vw,
                       connectAcrossMissingData: widget.connectAcrossMissingData,
@@ -367,6 +377,7 @@ class _LineChartPainter extends CustomPainter {
   final int? selectedIndex;
   final double? thresholdMin;
   final double? thresholdMax;
+  final int? axisDecimalPlaces;
   final double scrollOffset;
   final double virtualWidth;
   final bool connectAcrossMissingData;
@@ -383,6 +394,7 @@ class _LineChartPainter extends CustomPainter {
     this.selectedIndex,
     this.thresholdMin,
     this.thresholdMax,
+    this.axisDecimalPlaces,
     this.scrollOffset = 0.0,
     this.virtualWidth = 0.0,
     this.connectAcrossMissingData = false,
@@ -423,12 +435,12 @@ class _LineChartPainter extends CustomPainter {
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
-      int decimalPlaces = 0;
-      if (range < 1.0) {
-        decimalPlaces = 2;
-      } else if (range < 5.0) {
-        decimalPlaces = 1;
-      }
+      final decimalPlaces = axisDecimalPlaces ??
+          (range < 1.0
+              ? 2
+              : range < 5.0
+                  ? 1
+                  : 0);
 
       const tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
@@ -439,8 +451,11 @@ class _LineChartPainter extends CustomPainter {
           gridPaint,
         );
 
-        final val = maxVal - (range * i / tickCount);
-        final label = val.toStringAsFixed(decimalPlaces);
+        final val = i == tickCount
+            ? minVal
+            : maxVal - (range * i / tickCount);
+        final safeVal = val.abs() < 1e-9 ? 0.0 : val;
+        final label = safeVal.toStringAsFixed(decimalPlaces);
         final tp = TextPainter(
           text: TextSpan(
             text: i == tickCount ? '$label $unit' : label,
@@ -634,9 +649,9 @@ class _LineChartPainter extends CustomPainter {
         for (var i = 0; i < visibleIndices.length; i++) {
           final tp = labelPainters[i];
           final labelX = firstLabelX + labelSpacing * i;
-          // Move timestamps slightly lower so they have breathing room below
-          // the plot and stay visually separate from the y-axis bottom tick.
-          final anchorY = size.height - padB + 20.0;
+          // Keep timestamps below the plot and separated from the y-axis
+          // bottom tick; this extra offset prevents the labels from touching.
+          final anchorY = size.height - padB + 35.0;
           canvas.save();
           canvas.translate(labelX, anchorY);
           canvas.rotate(angle);

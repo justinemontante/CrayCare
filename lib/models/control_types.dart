@@ -90,6 +90,15 @@ List<String> feederWaterQualityWarnings({
     final min = ranges[key]?['min'] ?? fallbackMin;
     final max = ranges[key]?['max'] ?? fallbackMax;
     final formattedValue = '${value.toStringAsFixed(decimals)}$unit';
+    if (key == 'turb') {
+      if (value > max) {
+        warnings.add(
+          '$label is above range: $formattedValue '
+          '(maximum ${max.toStringAsFixed(decimals)}$unit)',
+        );
+      }
+      return;
+    }
     if (value < min) {
       warnings.add(
         '$label is below range: $formattedValue (minimum ${min.toStringAsFixed(decimals)}$unit)',

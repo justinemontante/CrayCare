@@ -1298,6 +1298,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMax: chartKey == 'waterlevel'
                             ? null
                             : thresholds['max'],
+                        axisMinY: chartKey == 'turb' ? 0.0 : null,
+                        axisDecimalPlaces: chartKey == 'turb' ? 1 : null,
                         decimalPlaces: dp,
                         connectAcrossMissingData: _activeFilter == '24h',
                         // Start on the newest point in the selected range.
@@ -1983,6 +1985,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMax: chartKey == 'waterlevel'
                                     ? null
                                     : thresholds['max'],
+                                axisMinY: chartKey == 'turb' ? 0.0 : null,
+                                axisDecimalPlaces:
+                                    chartKey == 'turb' ? 1 : null,
                                 decimalPlaces: dp,
                                 connectAcrossMissingData:
                                     _activeFilter == '24h',

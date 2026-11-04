@@ -33,7 +33,7 @@ def interpret_anomaly(is_anomaly, anomaly_score, contributors, recommendations):
         reading = f"{label} ({item['value']:g}{unit})"
         if item["direction"] == "stable":
             return f"{reading} has changed little"
-        direction = {"increasing": "is rising", "decreasing": "is falling"}.get(
+        direction = {"increasing": "rising", "decreasing": "falling"}.get(
             item["direction"], "has changed"
         )
         return f"{reading} is {direction}"
