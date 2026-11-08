@@ -56,6 +56,26 @@ OTHER PERIPHERALS
 │   15   │       │ SD card CS (future)  │ Idles HIGH (pull-up)     │
 └────────┴───────┴──────────────────────┴──────────────────────────┘
 
+DUAL-ESP pH VARIANT (esp32dev_main_no_ph + ph_only)
+  This wiring applies only when using the second, dedicated pH ESP. The
+  original all-in-one main.cpp firmware and its pH wiring remain unchanged.
+
+  Dedicated pH ESP:
+    SEN0161 A/O -> GPIO35 (ADC input)
+    UART2 TX    -> GPIO26 (3.3V serial output)
+    GND         -> common system GND
+  Main ESP running esp32dev_main_no_ph:
+    UART2 RX    -> GPIO35 (the local pH ADC is disabled in this variant)
+    GND         -> common system GND
+  Connect pH ESP GPIO26/TX -> main ESP GPIO35/RX, and join both ESP grounds.
+  Keep the pH module's analog output wired only to GPIO35 on the dedicated pH
+  ESP. Do not join the ESP USB/UART0 pins. Both link endpoints use 115200 baud.
+
+  The pH ESP keeps calibration in its own NVS. It sends one framed calibrated
+  reading per second. The main no-pH ESP owns the LCD, Firestore latest writes,
+  ten-minute sensor history, and SD-first offline queue (LittleFS fallback).
+  The main marks pH unavailable if valid link data stops for 3.5 seconds.
+
 FEEDER GATE — SG92R SERVO (firmware signal GPIO5)
   - 1 g-only model: 1 open/close actuation = 1 g, always. Feed grams from
     the app decide the count: 5 g = exactly 5 actuations.

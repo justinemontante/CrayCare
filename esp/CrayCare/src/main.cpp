@@ -163,11 +163,13 @@ void applyTankAssignment(const String& tankId, const String& ownerUid = "", long
 // 404 missing, 401 auth, 403 rules — return immediately without retry.
 // Silent on first-attempt failure; callers print only if both fail.
 #define OUTAGE_TRIP_FAILURES 5
-#define OUTAGE_PROBE_MS 30000
+#define OUTAGE_PROBE_MS 10000
 int cloudTransportFailures = 0;  // consecutive timeout-class failures (session resets)
 int cloudOutageStreak = 0;       // consecutive failures (outage mode, never auto-resets down)
 bool cloudOutage = false;
 unsigned long lastOutageProbeMs = 0;
+bool latestSendRecoveryPending = false;
+unsigned long lastLatestRecoveryAttemptMs = 0;
 
 // Any success clears the streak. On 3 consecutive transport failures the
 // shared TLS session is dropped so the next call does a clean handshake
@@ -182,6 +184,7 @@ void reportCloudResult(bool ok) {
     cloudOutageStreak = 0;
     if (cloudOutage) {
       cloudOutage = false;
+      latestSendRecoveryPending = true;
       Serial.println("[NET] Link recovered — full cloud ops resumed");
     }
     return;
@@ -193,7 +196,7 @@ void reportCloudResult(bool ok) {
   }
   if (!cloudOutage && cloudOutageStreak >= OUTAGE_TRIP_FAILURES) {
     cloudOutage = true;
-    Serial.println("[NET] Outage mode — cloud calls suspended, probing every 30 s");
+    Serial.println("[NET] Outage mode — cloud calls suspended, probing every 10 s");
   }
 }
 
@@ -246,10 +249,13 @@ FirebaseConfig config;
 
 bool firebaseReady = false;
 bool firebaseStarted = false;
+bool firebaseReconnectAfterWiFi = false;
 unsigned long firebaseBeginStartedMs = 0;
 unsigned long lastFirebaseAuthAttemptMs = 0;
 volatile bool firebaseAuthAttemptFailed = false;
-constexpr unsigned long FIREBASE_AUTH_RETRY_INTERVAL_MS = 15UL * 60UL * 1000UL;
+constexpr unsigned long FIREBASE_AUTH_RETRY_INITIAL_MS = 30000UL;
+constexpr unsigned long FIREBASE_AUTH_RETRY_MAX_MS = 15UL * 60UL * 1000UL;
+unsigned long firebaseAuthRetryDelayMs = FIREBASE_AUTH_RETRY_INITIAL_MS;
 bool cloudBootstrapComplete = false;
 unsigned long lastFirebaseAuthReportMs = 0;
 time_t nextFirebaseSendEpoch = 0;
@@ -669,6 +675,9 @@ unsigned long lastAssignmentCheckMs = 0;
 unsigned long lastNonPhPollTime = 0;
 unsigned long lastPhPollTime = 0;
 unsigned long lastWifiReconnectTime = 0;
+uint32_t wifiReconnectAttemptCount = 0;
+bool wifiConnectionStateKnown = false;
+bool wifiWasConnected = false;
 bool ntpEverSynced = false;            // set once time() passes the epoch gate
 unsigned long lastNtpSyncMs = 0;
 time_t feederBootEpoch = 0;            // wall-clock time first established this boot
@@ -1243,6 +1252,8 @@ bool saveHistoryWindowCheckpoint() {
   if (hasCurrentTankAssignment()) historyWindowRecovered = false;
   return true;
 }
+
+void resetWindowAggregates();
 
 bool loadHistoryWindowCheckpoint() {
   PersistedHistoryState loaded{};
@@ -1850,6 +1861,7 @@ void connectWiFi() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.disconnect(true, true);
   delay(200);
 
@@ -1933,6 +1945,7 @@ void connectFirebase() {
   firebaseStarted = true;
   firebaseBeginStartedMs = millis();
   firebaseAuthAttemptFailed = false;
+  firebaseAuthRetryDelayMs = FIREBASE_AUTH_RETRY_INITIAL_MS;
   firebaseReady = false;
   Serial.println("[FIREBASE] Starting device authentication...");
   Firebase.begin(&config, &auth);
@@ -1940,10 +1953,13 @@ void connectFirebase() {
   lastFirebaseAuthAttemptMs = millis();
   if (firebaseAuthAttemptFailed) {
     config.signer.tokens.status = token_status_error;
-    Serial.println("[FIREBASE] Login rejected; next automatic attempt is in 15 minutes.");
+    Serial.printf("[FIREBASE] Authentication error; retry backoff starts at %lu s.\n",
+                  firebaseAuthRetryDelayMs / 1000UL);
   }
-  Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retries are limited to once per 15 minutes.\n",
-                lastFirebaseAuthAttemptMs - firebaseBeginStartedMs);
+  Serial.printf("[FIREBASE] Initial attempt returned after %lu ms; retry backoff starts at %lu s and caps at %lu min.\n",
+                lastFirebaseAuthAttemptMs - firebaseBeginStartedMs,
+                firebaseAuthRetryDelayMs / 1000UL,
+                FIREBASE_AUTH_RETRY_MAX_MS / 60000UL);
 }
 
 String lastFirebaseAuthReport = "";
@@ -2160,28 +2176,42 @@ bool ensureFirebaseReady() {
   // one gate suspends them all; only the loop probe bypasses (direct call).
   if (cloudModeForcedOffline() || cloudOutage) return false;
   if (Firebase.ready()) {
+    if (!firebaseReady) latestSendRecoveryPending = true;
     firebaseReady = true;
+    firebaseReconnectAfterWiFi = false;
+    firebaseAuthAttemptFailed = false;
+    firebaseAuthRetryDelayMs = FIREBASE_AUTH_RETRY_INITIAL_MS;
     return true;
   }
-  // Not ready: throttle re-authentication so a failed email/password
-  // sign-in is not retried by every cloud call in loop(), which would
-  // quickly trigger Identity Toolkit rate limiting.
-  if (millis() - lastFirebaseAuthAttemptMs < FIREBASE_AUTH_RETRY_INTERVAL_MS) {
+  // Not ready: use bounded exponential backoff rather than retrying on every
+  // cloud call. A Wi-Fi restoration gets one immediate attempt; otherwise
+  // retries start at 30 s and grow to a 15 min maximum.
+  const bool retryAfterWiFiRecovery = firebaseReconnectAfterWiFi &&
+      !firebaseAuthAttemptFailed;
+  if (!retryAfterWiFiRecovery &&
+      millis() - lastFirebaseAuthAttemptMs < firebaseAuthRetryDelayMs) {
     firebaseReady = false;
     return false;
   }
+  firebaseReconnectAfterWiFi = false;
   firebaseAuthAttemptFailed = false;
-  Serial.println("[FIREBASE] Retrying device authentication...");
+  Serial.printf("[FIREBASE] Retrying device authentication (backoff %lu s)...\n",
+                firebaseAuthRetryDelayMs / 1000UL);
   Firebase.begin(&config, &auth);
   lastFirebaseAuthAttemptMs = millis();
+  firebaseAuthRetryDelayMs = min(firebaseAuthRetryDelayMs * 2UL,
+                                 FIREBASE_AUTH_RETRY_MAX_MS);
   if (firebaseAuthAttemptFailed) {
     config.signer.tokens.status = token_status_error;
-    Serial.println("[FIREBASE] Login still rejected; waiting 15 minutes before another retry.");
+    Serial.printf("[FIREBASE] Authentication error; next retry backoff is %lu s.\n",
+                  firebaseAuthRetryDelayMs / 1000UL);
     firebaseReady = false;
     return false;
   }
   if (Firebase.ready()) {
     firebaseReady = true;
+    latestSendRecoveryPending = true;
+    firebaseAuthRetryDelayMs = FIREBASE_AUTH_RETRY_INITIAL_MS;
     return true;
   }
   // Firebase-ESP-Client refreshes the email/password token automatically.
@@ -2314,11 +2344,12 @@ bool sendLatestToFirestore() {
                                                      docPath.c_str(), content.raw(), updateMask);
   reportCloudResult(latestOk);
   if (latestOk) {
+    latestSendRecoveryPending = false;
     Serial.println("[FIRESTORE] Latest sent");
   } else {
     // Do not retry immediately. A second TLS operation against an already
     // wedged session commonly produces mRunUntil/mConnectSSL errors and puts
-    // more pressure on heap. The main loop retries on the next 5-second slot.
+    // more pressure on heap. The main loop retries on the next 10-second slot.
     Serial.printf("[FIRESTORE ERROR] code=%d reason=%s | RSSI=%d dBm | heap=%u\n",
                   fbdo.httpCode(), fbdo.errorReason().c_str(), WiFi.RSSI(),
                   (unsigned)ESP.getFreeHeap());
@@ -4503,12 +4534,77 @@ void loop() {
   // early return prevented history buffering and scheduled feeding offline.
   const bool wifiConnected = WiFi.status() == WL_CONNECTED;
   const bool networkAvailable = wifiConnected && !cloudModeForcedOffline();
+  if (!wifiConnectionStateKnown) {
+    wifiConnectionStateKnown = true;
+    wifiWasConnected = wifiConnected;
+  } else if (wifiConnected != wifiWasConnected) {
+    wifiWasConnected = wifiConnected;
+    if (!wifiConnected) {
+      firebaseReady = false;
+      Serial.println("[WIFI] Link lost; local sensing continues while reconnect is attempted.");
+    } else {
+      wifiReconnectAttemptCount = 0;
+      lastWifiReconnectTime = 0;
+      nextFirebaseSendEpoch = 0;
+      latestSendRecoveryPending = true;
+      lastLatestRecoveryAttemptMs = 0;
+
+      const String connectedSsid = WiFi.SSID();
+      const int savedProfiles = wifiProfileCount();
+      for (int i = 0; i < savedProfiles; ++i) {
+        String profileSsid, profilePass;
+        wifiGetProfile(i, profileSsid, profilePass);
+        if (profileSsid == connectedSsid) {
+          ssid = profileSsid;
+          pass = profilePass;
+          wifiSetActive(i);
+          break;
+        }
+      }
+
+      if (firebaseStarted) {
+        firebaseReady = false;
+        firebaseReconnectAfterWiFi = !firebaseAuthAttemptFailed;
+        fbdo.clear();
+        Firebase.reconnectWiFi(true);
+        lastOutageProbeMs = 0;
+      }
+      Serial.printf("[WIFI] Link restored to \"%s\"; Firebase/latest sync recovery started.\n",
+                    connectedSsid.c_str());
+    }
+  }
   if (!wifiConnected && now - lastWifiReconnectTime >= 10000UL) {
     lastWifiReconnectTime = now;
-    if (sensorOutputEnabled) {
-      Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
+    ++wifiReconnectAttemptCount;
+    if (wifiReconnectAttemptCount % 3UL == 0) {
+      const int savedProfiles = wifiProfileCount();
+      if (savedProfiles > 0) {
+        int active = wifiActiveIndex();
+        if (active < 0 || active >= savedProfiles) active = 0;
+        const int profileOffset = (int)(((wifiReconnectAttemptCount / 3UL) - 1UL) %
+                                        (uint32_t)savedProfiles);
+        const int candidate = (active + profileOffset) % savedProfiles;
+        String candidateSsid, candidatePass;
+        wifiGetProfile(candidate, candidateSsid, candidatePass);
+        if (candidateSsid.length() > 0) {
+          Serial.printf("[WIFI] Rejoining saved profile %d/%d \"%s\"...\n",
+                        candidate + 1, savedProfiles, candidateSsid.c_str());
+          WiFi.disconnect(false, false);
+          delay(100);
+          esp_task_wdt_reset();
+          WiFi.begin(candidateSsid.c_str(), candidatePass.c_str());
+        } else {
+          WiFi.reconnect();
+        }
+      } else {
+        WiFi.reconnect();
+      }
+    } else {
+      if (sensorOutputEnabled) {
+        Serial.println("[WIFI] Offline — local sensing/automation continues; reconnecting...");
+      }
+      WiFi.reconnect();
     }
-    WiFi.reconnect();
   }
 
   // If a local feed was interrupted before its terminal event could be
@@ -4633,6 +4729,7 @@ void loop() {
   // Align latest-document writes to wall-clock 10-second boundaries (:00,
   // :10, :20, ...). Sampling continues independently between these writes.
   // Missed slots while offline or blocked are skipped; no catch-up burst.
+  bool latestSendAttemptedThisLoop = false;
   time_t latestSendNow = 0;
   time(&latestSendNow);
   if (latestSendNow >= 1577836800) {
@@ -4646,10 +4743,12 @@ void loop() {
           latestSendNow / FIREBASE_SEND_INTERVAL_SECONDS ==
           nextFirebaseSendEpoch / FIREBASE_SEND_INTERVAL_SECONDS;
       if (stillOnScheduledSlot && networkAvailable &&
-          hasCurrentTankAssignment()) {
+          hasCurrentTankAssignment() && !cloudOutage) {
         // Whether it succeeds or fails, wait for the next wall-clock slot.
         // Immediate retries amplify weak-link TLS failures and can exhaust
         // the SSL layer.
+        latestSendAttemptedThisLoop = true;
+        lastLatestRecoveryAttemptMs = millis();
         sendLatestToFirestore();
         now = millis();
       }
@@ -4674,6 +4773,18 @@ void loop() {
     bool probeOk = Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "",
                                                   "hardware_system/currentOwner");
     reportCloudResult(probeOk);
+    now = millis();
+  }
+
+  // A successful outage probe or Wi-Fi/auth recovery makes the current
+  // averaged reading more useful than replaying missed "latest" slots. Send
+  // one fresh snapshot immediately, then resume the normal 10 s cadence.
+  if (latestSendRecoveryPending && !latestSendAttemptedThisLoop &&
+      networkAvailable && hasCurrentTankAssignment() &&
+      now - lastLatestRecoveryAttemptMs >= 10000UL) {
+    lastLatestRecoveryAttemptMs = now;
+    latestSendAttemptedThisLoop = true;
+    sendLatestToFirestore();
     now = millis();
   }
 
