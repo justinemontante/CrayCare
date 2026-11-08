@@ -26,6 +26,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   final Map<String, List<double>> _minData = {};
   final Map<String, List<double>> _maxData = {};
   final Map<String, List<String>> _labels = {};
+  final Map<String, List<DateTime>> _pointTimes = {};
   final Set<String> _historyLoadFailed = <String>{};
   final Map<String, int?> _selectedIndices = {};
   late final Map<String, GlobalKey> _chartCardKeys;
@@ -421,6 +422,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return;
     }
 
+    _pointTimes[range] = records.map(_recordTime).toList(growable: false);
+
     // The 24-hour, 7-day, 30-day, and custom views plot each saved history
     // entry directly, so missing time does not create empty chart positions.
     // The chart can be horizontally scrolled to inspect each record.
@@ -620,6 +623,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       _maxData['$key-$range'] = <double>[];
     }
     _labels[range] = <String>[];
+    _pointTimes[range] = <DateTime>[];
   }
 
   double? _historyValue(String key, dynamic raw) {
@@ -629,7 +633,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       'temp' => value >= 0 && value <= 60 ? value : null,
       'ph' => value >= 2 && value <= 12 ? value : null,
       'do' => value >= 0 && value <= 15 ? value : null,
-      'turb' => value >= 0 && value <= 500 ? value : null,
+      // Keep historical analytics aligned with the ESP32 and live-reading cap.
+      'turb' => value >= 0 && value <= 1000 ? value : null,
       'waterlevel' => value >= 0 && value <= 300 ? value : null,
       'feedlevel' => value >= 0 && value <= 100 ? value : null,
       _ => value >= 0 ? value : null,
@@ -997,6 +1002,79 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  ({double change, double minutes})? _recent30MinuteChange(String chartKey) {
+    final values = _getData(chartKey, '24h');
+    final times = _pointTimes['24h'];
+    if (times == null || times.length != values.length || values.length < 2) {
+      return null;
+    }
+    final latestIndex = values.lastIndexWhere((value) => value.isFinite);
+    if (latestIndex < 0) return null;
+    final latestTime = times[latestIndex];
+    var matchIndex = -1;
+    var closestOffset = const Duration(days: 1);
+    for (var index = 0; index < latestIndex; index++) {
+      if (!values[index].isFinite) continue;
+      final elapsed = latestTime.difference(times[index]);
+      if (elapsed < const Duration(minutes: 20) ||
+          elapsed > const Duration(minutes: 40)) {
+        continue;
+      }
+      final offset = (elapsed - const Duration(minutes: 30)).abs();
+      if (offset < closestOffset) {
+        closestOffset = offset;
+        matchIndex = index;
+      }
+    }
+    if (matchIndex < 0) return null;
+    return (
+      change: values[latestIndex] - values[matchIndex],
+      minutes: latestTime.difference(times[matchIndex]).inSeconds / 60.0,
+    );
+  }
+
+  Widget _buildSensorTrendContext(String chartKey) {
+    final unit = _unitFor(chartKey);
+    final change = _recent30MinuteChange(chartKey);
+
+    final arrow = change == null || change.change.abs() < 0.000001
+        ? Icons.trending_flat_rounded
+        : change.change > 0
+        ? Icons.trending_up_rounded
+        : Icons.trending_down_rounded;
+    final trendColor = change == null || change.change.abs() < 0.000001
+        ? AppColors.darkWith(0.55)
+        : AppColors.primary;
+    final changeLabel = change == null
+        ? 'Recent change unavailable'
+        : 'Last ${change.minutes.round()} min: ${change.change > 0 ? '+' : ''}${change.change.toStringAsFixed(_decimalFor(chartKey))} $unit';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.primaryWith(0.035),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        children: [
+          Icon(arrow, size: 15, color: trendColor),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              changeLabel,
+              style: TextStyle(
+                color: AppColors.darkWith(0.78),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatDate(DateTime dt) {
     final months = [
       'Jan',
@@ -1299,9 +1377,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ? null
                             : thresholds['max'],
                         axisMinY: chartKey == 'turb' ? 0.0 : null,
-                        axisDecimalPlaces: chartKey == 'turb' ? 1 : null,
                         decimalPlaces: dp,
                         connectAcrossMissingData: _activeFilter == '24h',
+                        liveMode: _activeFilter == 'live',
                         // Start on the newest point in the selected range.
                         initialScrollToEnd: true,
                       ),
@@ -1339,6 +1417,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       _onChartSelectionChanged(chartKey, idx),
                   dp: dp,
                 ),
+              ],
+              if (hasValid &&
+                  _activeFilter == '24h' &&
+                  const {'temp', 'ph', 'do', 'turb'}.contains(chartKey)) ...[
+                const SizedBox(height: 8),
+                _buildSensorTrendContext(chartKey),
               ],
             ],
           ),
@@ -1986,11 +2070,10 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                     ? null
                                     : thresholds['max'],
                                 axisMinY: chartKey == 'turb' ? 0.0 : null,
-                                axisDecimalPlaces:
-                                    chartKey == 'turb' ? 1 : null,
                                 decimalPlaces: dp,
                                 connectAcrossMissingData:
                                     _activeFilter == '24h',
+                                liveMode: _activeFilter == 'live',
                                 // Expanded chart follows the same oldest → newest flow.
                                 initialScrollToEnd: true,
                               ),
