@@ -589,6 +589,7 @@ size_t bufferReadAll(String* lines, size_t maxLines, bool* fromSd = nullptr) {
 // Upload one queued row directly to its canonical Manila-day history folder.
 // The deterministic Firestore document ID makes retries idempotent.
 String getHardwareId();
+String firestoreTimestampString(time_t seconds);
 static bool uploadBufferedEntry(const String& queuedLine) {
   // Deterministic doc ID from local queue metadata. The metadata is not part
   // of the Firestore payload. Old buffer rows used captured_at_ms in their
@@ -2452,11 +2453,7 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
                  ? liveSensorSnapshot.temperature : -1.0f);
 
     if (liveSensorSnapshot.ready && liveSensorSnapshot.turbidityValid) {
-      json.set("fields/turbidity_air/booleanValue", false);
       json.set("fields/turbidity/doubleValue", liveSensorSnapshot.turbidityNTU);
-    } else {
-      json.set("fields/turbidity_air/booleanValue", true);
-      json.set("fields/turbidity/doubleValue", 0.0);
     }
 
     if (ENABLE_DO_SENSOR) {
@@ -2581,6 +2578,8 @@ bool sendLatestToFirestore() {
   // reading.
   // Keep captured_at_ms in the update mask solely to delete it from legacy
   // latest documents. New payloads and rules use recorded_at only.
+  // Keep legacy turbidity_air in the mask so PATCH deletes the old field from
+  // latest documents. Current firmware omits it; missing turbidity means invalid.
   const char* updateMask = "hardwareId,source_tank_id,source_owner_uid,source_assignment_at_ms,captured_at_ms,recorded_at,buffered_entries,temperature,turbidity,turbidity_air,dissolved_oxygen,ph_level,water_level,feed_level";
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",

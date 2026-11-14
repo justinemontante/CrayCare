@@ -2351,18 +2351,13 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
   if (!includeTimestamp) {
     // Real sensors use the most recently completed 5-second average window.
 
-    // Firestore rules require these fields in every latest-sensor document,
-    // including this build where temperature/turbidity hardware is disabled.
-    // Use explicit unavailable/air fallback values rather than omitting them.
+    // Temperature keeps its unavailable sentinel. Omit turbidity when invalid;
+    // the update mask clears stale readings without writing an air marker.
     json.set("fields/temperature/doubleValue",
              liveSensorSnapshot.ready && liveSensorSnapshot.tempValid
                  ? liveSensorSnapshot.temperature : -1.0f);
     if (liveSensorSnapshot.ready && liveSensorSnapshot.turbidityValid) {
-      json.set("fields/turbidity_air/booleanValue", false);
       json.set("fields/turbidity/doubleValue", liveSensorSnapshot.turbidityNTU);
-    } else {
-      json.set("fields/turbidity_air/booleanValue", true);
-      json.set("fields/turbidity/doubleValue", 0.0f);
     }
 
     if (ENABLE_EXTERNAL_PH_LINK) {
@@ -2453,6 +2448,8 @@ bool sendLatestToFirestore() {
   // latest documents. New payloads and rules use recorded_at only.
   // pH is received from the dedicated pH ESP and published by this master
   // alongside the matching 5-second averages from its other sensors.
+  // Retain the legacy mask path to remove turbidity_air from existing latest
+  // documents. Current firmware omits that field; missing turbidity is invalid.
   const char* updateMask = "hardwareId,source_tank_id,source_owner_uid,source_assignment_at_ms,captured_at_ms,recorded_at,buffered_entries,temperature,turbidity,turbidity_air,dissolved_oxygen,ph_level,water_level,feed_level";
 
   bool latestOk = Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",

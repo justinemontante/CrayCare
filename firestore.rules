@@ -139,8 +139,10 @@ service cloud.firestore {
           'dissolved_oxygen', 'ph_level', 'water_level', 'feed_level'
         ]) &&
         reading.get('temperature', null) is number &&
-        reading.get('turbidity', null) is number &&
-        reading.get('turbidity_air', null) is bool &&
+        // turbidity_air is accepted only for older firmware during rollout.
+        // Current firmware omits invalid turbidity and no longer writes this flag.
+        (reading.get('turbidity_air', null) == null ||
+          reading.get('turbidity_air', null) is bool) &&
         reading.get('buffered_entries', 0) is int &&
         reading.buffered_entries >= 0 &&
         validOptionalSensorNumber('temperature', -10.0, 60.0) &&

@@ -93,8 +93,7 @@ tanks/{tank_id}       # tank_id is the owner's Firebase Authentication UID
     temperature: number
     ph_level: number
     dissolved_oxygen: number
-    turbidity: number
-    turbidity_air: boolean
+    turbidity: number                # omitted when probe is invalid/in air
     water_level: number                # centimeters
     feed_level: number                 # hopper percentage
     buffered_entries: number           # optional offline-backlog count
@@ -273,7 +272,6 @@ ESP32
        source_assignment_at_ms
        recorded_at
        live sensor values
-       turbidity_air
        buffered_entries
 
   -> tanks/{currentTankId}/sensor_readings_history/{Manila date}/entries/{reading_id}

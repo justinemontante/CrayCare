@@ -73,7 +73,6 @@
           "ph_level (double, when present)",
           "dissolved_oxygen (double, when present)",
           "turbidity (double, when present)",
-          "turbidity_air (bool, when present)",
           "water_level (double, cm, when present)",
           "feed_level (double, percent, when present)",
           "buffered_entries (int, optional offline-backlog count)",
