@@ -376,16 +376,16 @@ class FeederTab extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.primaryWith(0.035),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.primaryWith(0.10)),
+          border: Border.all(color: AppColors.faintBorder),
         ),
         child: Row(
           children: [
             Icon(
               Icons.scale_rounded,
               size: 16,
-              color: AppColors.primary.withValues(alpha: 0.6),
+              color: AppColors.darkWith(0.35),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -393,7 +393,7 @@ class FeederTab extends StatelessWidget {
                 'Record crayfish sampling and stocking data to activate live 5% biomass feeding recommendations.',
                 style: TextStyle(
                   fontSize: 9.5,
-                  color: AppColors.darkWith(0.5),
+                  color: AppColors.subtitleText,
                   height: 1.3,
                 ),
               ),
@@ -405,30 +405,30 @@ class FeederTab extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.primaryWith(0.035),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primaryWith(0.10)),
+        border: Border.all(color: AppColors.faintBorder),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(5),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(7),
+                    color: AppColors.lightBg,
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.scale_rounded,
-                    size: 14,
-                    color: AppColors.primary,
+                    size: 15,
+                    color: AppColors.darkWith(0.7),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,17 +436,17 @@ class FeederTab extends StatelessWidget {
                       const Text(
                         'Feeding Recommendation',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w800,
                           color: AppColors.dark,
                         ),
                       ),
+                      const SizedBox(height: 1),
                       Text(
-                        '5% of Body Weight · 2 times',
+                        '5% of body weight',
                         style: TextStyle(
                           fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
+                          color: AppColors.subtitleText,
                         ),
                       ),
                     ],
@@ -455,55 +455,70 @@ class FeederTab extends StatelessWidget {
                 InkWell(
                   onTap: () => _showFeedingBreakdownModal(ctx, rec),
                   borderRadius: BorderRadius.circular(20),
-                  child: Container(
+                  child: Padding(
                     padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.08),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.help_outline_rounded,
                       size: 16,
-                      color: AppColors.primary,
+                      color: AppColors.darkWith(0.3),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            // Recommendation only — the farmer sets their own schedule times.
-            Column(
+            const SizedBox(height: 12),
+            Container(height: 1, color: AppColors.faintBorder),
+            const SizedBox(height: 12),
+            // Two clear stats: the dose and how often. The farmer sets times.
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                RichText(
-                  text: TextSpan(
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TextSpan(
-                        text: '${rec.perFeedingGrams.toInt()} g',
+                      Text(
+                        '${rec.perFeedingGrams.toInt()} g',
                         style: const TextStyle(
-                          fontSize: 18,
+                          fontSize: 20,
                           fontWeight: FontWeight.w800,
                           color: AppColors.primary,
                         ),
                       ),
-                      TextSpan(
-                        text: ' / feeding',
+                      const SizedBox(height: 2),
+                      Text(
+                        'per feeding',
                         style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkWith(0.7),
+                          fontSize: 9.5,
+                          color: AppColors.subtitleText,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  '2 times daily · ${rec.dailyRationGrams.round()} g total',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.darkWith(0.55),
+                Container(width: 1, height: 38, color: AppColors.faintBorder),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '2 times daily',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${rec.dailyRationGrams.round()} g total / day',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          color: AppColors.subtitleText,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -562,14 +577,14 @@ class FeederTab extends StatelessWidget {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
+                        color: AppColors.lightBg,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       alignment: Alignment.center,
-                      child: const Icon(
+                      child: Icon(
                         Icons.calculate_outlined,
                         size: 20,
-                        color: AppColors.primary,
+                        color: AppColors.darkWith(0.7),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -586,11 +601,11 @@ class FeederTab extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '5% of Body Weight',
+                            '5% of body weight',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
+                              color: AppColors.subtitleText,
                             ),
                           ),
                         ],
@@ -782,19 +797,17 @@ class FeederTab extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.05),
+                    color: AppColors.lightBg,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.12),
-                    ),
+                    border: Border.all(color: AppColors.faintBorder),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.check_circle_outline_rounded,
                         size: 15,
-                        color: AppColors.primary,
+                        color: AppColors.darkWith(0.5),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -1083,9 +1096,9 @@ class FeederTab extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.primaryWith(0.035),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primaryWith(0.10)),
+        border: Border.all(color: AppColors.faintBorder),
       ),
       child: Column(
         children: [
