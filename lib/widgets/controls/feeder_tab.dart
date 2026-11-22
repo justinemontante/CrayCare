@@ -392,7 +392,7 @@ class FeederTab extends StatelessWidget {
               child: Text(
                 'Record crayfish sampling and stocking data to activate live 5% biomass feeding recommendations.',
                 style: TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 9,
                   color: AppColors.subtitleText,
                   height: 1.3,
                 ),
@@ -436,7 +436,7 @@ class FeederTab extends StatelessWidget {
                       const Text(
                         'Feeding Recommendation',
                         style: TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w800,
                           color: AppColors.dark,
                         ),
@@ -445,7 +445,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '5% of body weight',
                         style: TextStyle(
-                          fontSize: 9.5,
+                          fontSize: 9,
                           color: AppColors.subtitleText,
                         ),
                       ),
@@ -480,7 +480,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '${rec.perFeedingGrams.toInt()} g',
                         style: const TextStyle(
-                          fontSize: 20,
+                          fontSize: 17,
                           fontWeight: FontWeight.w800,
                           color: AppColors.primary,
                         ),
@@ -489,7 +489,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         'per feeding',
                         style: TextStyle(
-                          fontSize: 9.5,
+                          fontSize: 9,
                           color: AppColors.subtitleText,
                         ),
                       ),
@@ -505,7 +505,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '2 times daily',
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w800,
                           color: AppColors.dark,
                         ),
@@ -514,7 +514,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '${rec.dailyRationGrams.round()} g total / day',
                         style: TextStyle(
-                          fontSize: 9.5,
+                          fontSize: 9,
                           color: AppColors.subtitleText,
                         ),
                       ),
