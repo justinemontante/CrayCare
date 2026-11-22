@@ -43,8 +43,12 @@ class FeederRecommendation {
     }
 
     final totalBiomass = inTank * abw;
-    final dailyRation = totalBiomass * 0.05; // 5% Biomass rule (Cheng et al., 2025)
-    final perFeed = (dailyRation / 2).roundToDouble().clamp(1.0, 200.0);
+    // 5% biomass rule (Cheng et al., 2025). The ESP32 delivers whole grams,
+    // 1–200 g per feeding, so clamp the dose first and derive the daily ration
+    // from it — otherwise the card and breakdown show mismatched totals.
+    final perFeed =
+        (totalBiomass * 0.05 / 2).roundToDouble().clamp(1.0, 200.0);
+    final dailyRation = perFeed * 2;
 
     return FeederRecommendation(
       inTankCount: inTank,
@@ -439,9 +443,9 @@ class FeederTab extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '5% of Body Weight · 2x Daily',
+                        '5% of Body Weight · 2 times',
                         style: TextStyle(
-                          fontSize: 8.5,
+                          fontSize: 9.5,
                           fontWeight: FontWeight.w600,
                           color: AppColors.primary,
                         ),
@@ -481,7 +485,7 @@ class FeederTab extends StatelessWidget {
                             TextSpan(
                               text: '${rec.perFeedingGrams.toInt()} g',
                               style: const TextStyle(
-                                fontSize: 16,
+                                fontSize: 18,
                                 fontWeight: FontWeight.w800,
                                 color: AppColors.primary,
                               ),
@@ -489,7 +493,7 @@ class FeederTab extends StatelessWidget {
                             TextSpan(
                               text: ' / feeding',
                               style: TextStyle(
-                                fontSize: 10.5,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.darkWith(0.7),
                               ),
@@ -497,33 +501,14 @@ class FeederTab extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 1),
+                      const SizedBox(height: 3),
                       Text(
-                        '${rec.dailyRationGrams.round()}g total daily ration (50% split)',
+                        '2 times daily · ${rec.dailyRationGrams.round()} g total',
                         style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.darkWith(0.45),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.darkWith(0.55),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.schedule_rounded,
-                            size: 10,
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '6:00 AM & 6:00 PM',
-                            style: TextStyle(
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -577,6 +562,8 @@ class FeederTab extends StatelessWidget {
         reverseDuration: Duration(milliseconds: 220),
       ),
       builder: (sheetCtx) {
+        final rawDaily = rec.totalBiomassGrams * 0.05;
+        final isCapped = (rawDaily - rec.dailyRationGrams).abs() > 0.01;
         return Padding(
           padding: EdgeInsets.fromLTRB(
             20,
@@ -809,13 +796,15 @@ class FeederTab extends StatelessWidget {
                   title: 'Daily Feed (5%)',
                   formula: 'Biomass × 0.05',
                   computation:
-                      '${rec.totalBiomassGrams.toStringAsFixed(1)}g × 0.05 = ${rec.dailyRationGrams.toStringAsFixed(1)} g / day',
+                      isCapped
+                          ? '${rawDaily.toStringAsFixed(1)}g × 0.05 → ${rec.dailyRationGrams.toStringAsFixed(1)} g / day (capped)'
+                          : '${rawDaily.toStringAsFixed(1)}g × 0.05 = ${rec.dailyRationGrams.toStringAsFixed(1)} g / day',
                 ),
                 const SizedBox(height: 8),
                 _buildComputationStepRow(
                   stepNum: '3',
                   title: 'Dose per Feed',
-                  formula: '50% split (2x daily)',
+                  formula: '2 times daily',
                   computation:
                       '${rec.dailyRationGrams.toStringAsFixed(1)}g ÷ 2 = ${(rec.dailyRationGrams / 2).toStringAsFixed(1)}g → ${rec.perFeedingGrams.toInt()} g',
                   isFinal: true,
@@ -842,7 +831,7 @@ class FeederTab extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Whole numbers only (1 gate swing = 1 gram). Feeding doses automatically recalculate with new sampling or mortality records to prevent overfeeding.',
+                          'Whole numbers only (1 gate swing = 1 gram), capped at 200 g per feeding. Doses automatically recalculate with new sampling or mortality records to prevent overfeeding.',
                           style: TextStyle(
                             fontSize: 9.5,
                             height: 1.35,
