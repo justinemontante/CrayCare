@@ -436,7 +436,7 @@ class FeederTab extends StatelessWidget {
                       const Text(
                         'Feeding Recommendation',
                         style: TextStyle(
-                          fontSize: 10.5,
+                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                           color: AppColors.dark,
                         ),
@@ -480,7 +480,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '${rec.perFeedingGrams.toInt()} g',
                         style: const TextStyle(
-                          fontSize: 17,
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
                           color: AppColors.primary,
                         ),
@@ -489,14 +489,14 @@ class FeederTab extends StatelessWidget {
                       Text(
                         'per feeding',
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 8,
                           color: AppColors.subtitleText,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Container(width: 1, height: 38, color: AppColors.faintBorder),
+                Container(width: 1, height: 28, color: AppColors.faintBorder),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -505,7 +505,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '2 times daily',
                         style: TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
                           color: AppColors.dark,
                         ),
@@ -514,7 +514,7 @@ class FeederTab extends StatelessWidget {
                       Text(
                         '${rec.dailyRationGrams.round()} g total / day',
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 8,
                           color: AppColors.subtitleText,
                         ),
                       ),
