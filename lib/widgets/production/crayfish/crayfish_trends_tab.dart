@@ -831,6 +831,14 @@ class _TrendsTabState extends State<TrendsTab> {
   double _feedGrams(double? estimated, double? requested) =>
       estimated ?? requested ?? 0.0;
 
+  /// Batch timestamps are parsed to device-local DateTimes, but feed logs are
+  /// pinned to Asia/Manila. Recover the UTC instant first so both sides use
+  /// the same Manila calendar day, even on a device in another timezone.
+  DateTime _manilaDate(DateTime instant) {
+    final manila = instant.toUtc().add(const Duration(hours: 8));
+    return DateTime(manila.year, manila.month, manila.day);
+  }
+
   Widget _buildFeedIntakeChartContainer() {
     final service = TankService.instance;
     final feeder = FeederService.instance;
@@ -844,15 +852,10 @@ class _TrendsTabState extends State<TrendsTab> {
     DateTime? batchStart;
     DateTime? batchEnd;
     if (batch != null) {
-      batchStart = DateTime(
-        batch.stockingDate.year,
-        batch.stockingDate.month,
-        batch.stockingDate.day,
-      );
+      batchStart = _manilaDate(batch.stockingDate);
       final endRaw = batch.harvestDate ?? batch.endedAt;
       if (endRaw != null) {
-        batchEnd = DateTime(endRaw.year, endRaw.month, endRaw.day)
-            .add(const Duration(days: 1));
+        batchEnd = _manilaDate(endRaw).add(const Duration(days: 1));
       }
     }
 
@@ -862,11 +865,9 @@ class _TrendsTabState extends State<TrendsTab> {
       final start = batchStart;
       if (start == null) return true;
       if (log.timestamp <= 0) return false;
-      final dt = DateTime.fromMillisecondsSinceEpoch(
-        log.timestamp,
-        isUtc: true,
-      ).add(const Duration(hours: 8));
-      final day = DateTime(dt.year, dt.month, dt.day);
+      final day = _manilaDate(
+        DateTime.fromMillisecondsSinceEpoch(log.timestamp, isUtc: true),
+      );
       if (day.isBefore(start)) return false;
       if (batchEnd != null && !day.isBefore(batchEnd)) return false;
       return true;
