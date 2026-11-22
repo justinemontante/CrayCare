@@ -27,6 +27,8 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   bool _confirmVisible = false;
   bool _isSubmitting = false;
   String? _currentPwError;
+  String? _newPwError;
+  String? _confirmPwError;
 
   @override
   void initState() {
@@ -45,8 +47,14 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   }
 
   void _clearError() {
-    if (_currentPwError != null) {
-      setState(() => _currentPwError = null);
+    if (_currentPwError != null ||
+        _newPwError != null ||
+        _confirmPwError != null) {
+      setState(() {
+        _currentPwError = null;
+        _newPwError = null;
+        _confirmPwError = null;
+      });
     }
   }
 
@@ -55,20 +63,43 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
     final newPw = widget.newPwCtrl.text;
     final confirmPw = widget.confirmPwCtrl.text;
 
-    if ((!widget.isCreatingPassword && currentPw.isEmpty) ||
-        newPw.isEmpty ||
-        confirmPw.isEmpty) {
-      setState(() => _currentPwError = 'Please fill in all fields.');
+    if (!widget.isCreatingPassword && currentPw.isEmpty) {
+      setState(() => _currentPwError = 'Enter your current password.');
+      return;
+    }
+
+    if (newPw.isEmpty) {
+      setState(() => _newPwError = 'Enter a new password.');
+      return;
+    }
+
+    if (confirmPw.isEmpty) {
+      setState(() => _confirmPwError = 'Confirm your new password.');
       return;
     }
 
     if (newPw != confirmPw) {
-      setState(() => _currentPwError = 'New passwords do not match.');
+      setState(() => _confirmPwError = 'New passwords do not match.');
       return;
     }
 
     if (newPw.length < 8) {
-      setState(() => _currentPwError = 'Password must be at least 8 characters.');
+      setState(() => _newPwError = 'Password must be at least 8 characters.');
+      return;
+    }
+
+    if (!RegExp(r'\d').hasMatch(newPw)) {
+      setState(
+        () => _newPwError = 'Password must include at least one number.',
+      );
+      return;
+    }
+
+    if (!RegExp(r'[^A-Za-z0-9\s]').hasMatch(newPw)) {
+      setState(
+        () => _newPwError =
+            'Password must include at least one special character.',
+      );
       return;
     }
 
@@ -84,23 +115,32 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
           msg.contains('wrong password')) {
         setState(() => _currentPwError = 'Current password is incorrect.');
       } else if (msg.contains('weak-password')) {
-        setState(() => _currentPwError = 'New password is too weak.');
+        setState(() => _newPwError = 'New password is too weak.');
       } else if (msg.contains('too-many-requests')) {
         setState(
-          () => _currentPwError =
-              'Too many attempts. Please wait a few minutes.',
+          () =>
+              _setGeneralError('Too many attempts. Please wait a few minutes.'),
         );
       } else if (msg.contains('email-already-in-use') ||
           msg.contains('credential-already-in-use')) {
         setState(
-          () => _currentPwError =
-              'This email is already linked to another account.',
+          () => _setGeneralError(
+            'This email is already linked to another account.',
+          ),
         );
       } else {
-        setState(() => _currentPwError = msg.replaceFirst('Exception: ', ''));
+        setState(() => _setGeneralError(msg.replaceFirst('Exception: ', '')));
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _setGeneralError(String message) {
+    if (widget.isCreatingPassword) {
+      _newPwError = message;
+    } else {
+      _currentPwError = message;
     }
   }
 
@@ -135,9 +175,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.isCreatingPassword
-                        ? 'Create a password to also sign in using your email address.'
-                        : 'Your password must be at least 8 characters long.',
+                    'Use at least 8 characters, including a number and a special character.',
                     style: TextStyle(
                       fontSize: 11,
                       color: AppColors.dark,
@@ -163,9 +201,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
                     obscure: !_newVisible,
                     onToggle: () => setState(() => _newVisible = !_newVisible),
                     visible: _newVisible,
-                    errorText: widget.isCreatingPassword
-                        ? _currentPwError
-                        : null,
+                    errorText: _newPwError,
                   ),
                   const SizedBox(height: 16),
                   _buildField(
@@ -175,6 +211,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
                     onToggle: () =>
                         setState(() => _confirmVisible = !_confirmVisible),
                     visible: _confirmVisible,
+                    errorText: _confirmPwError,
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
@@ -242,10 +279,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
         TextField(
           controller: ctrl,
           obscureText: obscure,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.dark,
-          ),
+          style: const TextStyle(fontSize: 13, color: AppColors.dark),
           decoration: InputDecoration(
             filled: true,
             fillColor: AppColors.darkWith(0.04),
@@ -268,13 +302,17 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(
-                color: hasError ? AppColors.critical : AppColors.primaryWith(0.5),
+                color: hasError
+                    ? AppColors.critical
+                    : AppColors.primaryWith(0.5),
               ),
             ),
             suffixIcon: IconButton(
               onPressed: onToggle,
               icon: Icon(
-                visible ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+                visible
+                    ? Icons.visibility_rounded
+                    : Icons.visibility_off_rounded,
                 size: 18,
                 color: AppColors.darkWith(0.4),
               ),

@@ -13,7 +13,7 @@ import '../widgets/settings/notif_settings.dart';
 import '../widgets/settings/sensor_threshold_settings.dart';
 import '../widgets/settings/logout_sheet.dart';
 import '../services/database_service.dart';
-import '../services/storage_service.dart'; // Para sa pag-pick ng profile picture
+import '../services/storage_service.dart'; 
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../utils/snackbar_helper.dart';

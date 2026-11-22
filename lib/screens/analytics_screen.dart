@@ -371,17 +371,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
     List<Map<String, dynamic>> records;
     try {
-      // 30D must use raw entries rather than daily summaries. Reuse the
-      // per-day cache on refresh and surface failed day reads as load errors.
       final fetch = SensorService.instance.fetchHistoryRange(
         start: historyStart,
         end: historyEnd,
-        useDailySummaries: range != '7d' && range != '30d' && range != 'custom',
-        requireComplete: range == '30d',
+        useDailySummaries: false,
+        requireComplete: false,
       );
       if (range == 'custom' || range == '30d') {
-        // Long raw-history ranges can span thousands of entries. Let Firestore
-        // complete instead of showing an incomplete range after a timeout.
         records = await fetch;
       } else {
         records = await fetch.timeout(const Duration(seconds: 30));
@@ -446,7 +442,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               record[fields['avg']!] ??
               (fields['legacyAvg'] == null
                   ? null
-                  : record[fields['legacyAvg']!]);
+                  : record[fields['legacyAvg']!]) ??
+              record['${key}_avg'] ??
+              record[key];
           return _historyValue(key, raw) ?? double.nan;
         }).toList();
         _data['$key-$range'] = values;
@@ -1115,7 +1113,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 _stopHistoryTailListener();
                 setState(() {
                   _activeFilter = 'custom';
-                  _showCustom = false;
+                  _showCustom = true;
                   _selectedIndices.clear();
                   _isLoading = true;
                 });
@@ -1179,6 +1177,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final liveReadingLabel = SensorService.instance.isEspOnline
         ? 'Current Reading'
         : 'Last Reading';
+    final hideFeedLevelStats =
+        chartKey == 'feedlevel' &&
+        const {'7d', '30d', 'custom'}.contains(_activeFilter);
+    final feedLevelAverageOnly =
+        chartKey == 'feedlevel' && _activeFilter == '24h';
 
     int minIdx = -1, maxIdx = -1;
     if (validMinData.isNotEmpty) {
@@ -1208,16 +1211,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final criticalCount = criticalItems.length;
 
     final selIdx = _selectedIndices[chartKey];
+    void openChartModal() =>
+        _showChartModal(context, title: title, chartKey: chartKey, unit: unit);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: GestureDetector(
-        onTap: () => _showChartModal(
-          context,
-          title: title,
-          chartKey: chartKey,
-          unit: unit,
-        ),
+        onTap: openChartModal,
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1268,19 +1268,21 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
               const SizedBox(height: 8),
               Container(
-                height: 180,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: AppColors.primaryWith(0.03),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: !hasValid
-                    ? Center(
-                        child: Text(
-                          _noDataStatus(chartKey),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.darkWith(0.2),
+                    ? SizedBox(
+                        height: 188,
+                        child: Center(
+                          child: Text(
+                            _noDataStatus(chartKey),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.darkWith(0.2),
+                            ),
                           ),
                         ),
                       )
@@ -1289,7 +1291,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         color: _colorFor(chartKey),
                         unit: unit,
                         labels: labels,
-                        height: 180,
+                        height: 188,
                         selectedIndex: selIdx,
                         onSelectedIndexChanged: (idx) =>
                             _onChartSelectionChanged(chartKey, idx),
@@ -1299,8 +1301,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                         thresholdMax: chartKey == 'waterlevel'
                             ? null
                             : thresholds['max'],
-                        axisMinY: chartKey == 'turb' ? 0.0 : null,
+                        axisMinY: chartKey == 'turb' && _activeFilter != '24h'
+                            ? 0.0
+                            : null,
                         decimalPlaces: dp,
+                        fitYAxisToData:
+                            _activeFilter == '24h' ||
+                            (_activeFilter == 'live' &&
+                                (chartKey == 'temp' ||
+                                    chartKey == 'ph' ||
+                                    chartKey == 'do' ||
+                                    chartKey == 'turb')),
+                        tightLiveYAxis:
+                            _activeFilter == 'live' &&
+                            (chartKey == 'temp' ||
+                                chartKey == 'ph' ||
+                                chartKey == 'do' ||
+                                chartKey == 'turb'),
                         connectAcrossMissingData: _activeFilter == '24h',
                         liveMode: _activeFilter == 'live',
                         // Start on the newest point in the selected range.
@@ -1321,7 +1338,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                 ),
               ],
-              if (hasValid && _activeFilter != 'live') ...[
+              if (hasValid &&
+                  _activeFilter != 'live' &&
+                  !hideFeedLevelStats) ...[
                 const SizedBox(height: 8),
                 _buildStatsFooter(
                   curLabel,
@@ -1339,6 +1358,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                   onSelectIndex: (idx) =>
                       _onChartSelectionChanged(chartKey, idx),
                   dp: dp,
+                  averageOnly: feedLevelAverageOnly,
                 ),
               ],
             ],
@@ -1515,6 +1535,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     int nowIdx = -1,
     ValueChanged<int>? onSelectIndex,
     int dp = 1,
+    bool averageOnly = false,
   }) {
     double avg = 0.0;
     if (data.isNotEmpty) {
@@ -1524,7 +1545,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       }
     }
 
-    if (chartKey == 'waterlevel') {
+    if (chartKey == 'waterlevel' || averageOnly) {
       return Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
@@ -1533,8 +1554,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
           border: Border.all(color: AppColors.darkWith(0.06)),
         ),
         child: _buildStatRow(
-          Icons.water_drop_outlined,
-          'Average: ${avg.toStringAsFixed(dp)} cm',
+          chartKey == 'waterlevel' ? Icons.water_drop_outlined : Icons.sensors,
+          'Average: ${avg.toStringAsFixed(dp)} $unit',
           'Selected period',
           AppColors.primary,
         ),
@@ -1631,28 +1652,49 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildStatRow(IconData icon, String value, String label, Color color) {
     return Row(
       children: [
-        Icon(icon, size: 11, color: color),
-        const SizedBox(width: 3),
+        Icon(icon, size: 10, color: color),
+        const SizedBox(width: 2),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                value,
-                maxLines: 1,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.dark,
+              LayoutBuilder(
+                builder: (context, constraints) => SizedBox(
+                  width: constraints.maxWidth,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.dark,
+                      ),
+                    ),
+                  ),
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-              Text(
-                label,
-                maxLines: 1,
-                style: TextStyle(fontSize: 8, color: AppColors.darkWith(0.5)),
-                overflow: TextOverflow.ellipsis,
+              LayoutBuilder(
+                builder: (context, constraints) => SizedBox(
+                  width: constraints.maxWidth,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: 8,
+                        color: AppColors.darkWith(0.5),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1720,6 +1762,11 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
             final validMinData = minData.where((v) => !v.isNaN).toList();
             final validMaxData = maxData.where((v) => !v.isNaN).toList();
             final hasValid = validData.isNotEmpty;
+            final hideFeedLevelStats =
+                chartKey == 'feedlevel' &&
+                const {'7d', '30d', 'custom'}.contains(_activeFilter);
+            final feedLevelAverageOnly =
+                chartKey == 'feedlevel' && _activeFilter == '24h';
 
             int minIdx = -1, maxIdx = -1;
             final mn = validMinData.isEmpty
@@ -1842,7 +1889,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             dp: dp,
                           )
                         else ...[
-                          if (_activeFilter != 'live')
+                          if (_activeFilter != 'live' && !hideFeedLevelStats)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -1854,12 +1901,15 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                               ),
                               child: Column(
                                 children: [
-                                  if (chartKey == 'waterlevel')
+                                  if (chartKey == 'waterlevel' ||
+                                      feedLevelAverageOnly)
                                     Align(
                                       alignment: Alignment.centerLeft,
                                       child: _buildStatRow(
-                                        Icons.water_drop_outlined,
-                                        'Average: ${avg.toStringAsFixed(dp)} cm',
+                                        chartKey == 'waterlevel'
+                                            ? Icons.water_drop_outlined
+                                            : Icons.sensors,
+                                        'Average: ${avg.toStringAsFixed(dp)} $unit',
                                         modalDisplayLabel,
                                         AppColors.primary,
                                       ),
@@ -1963,7 +2013,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           const SizedBox(height: 12),
                           if (hasValid && labels.isNotEmpty)
                             Container(
-                              height: 220,
                               width: double.infinity,
                               decoration: BoxDecoration(
                                 color: AppColors.primaryWith(0.03),
@@ -1975,7 +2024,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 unit: unit,
                                 labels: labels,
                                 large: true,
-                                height: 220,
+                                height: 228,
                                 selectedIndex: modalSelectedIndex,
                                 onSelectedIndexChanged: (idx) => setDialogState(
                                   () => modalSelectedIndex = idx,
@@ -1986,8 +2035,24 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 thresholdMax: chartKey == 'waterlevel'
                                     ? null
                                     : thresholds['max'],
-                                axisMinY: chartKey == 'turb' ? 0.0 : null,
+                                axisMinY:
+                                    chartKey == 'turb' && _activeFilter != '24h'
+                                    ? 0.0
+                                    : null,
                                 decimalPlaces: dp,
+                                fitYAxisToData:
+                                    _activeFilter == '24h' ||
+                                    (_activeFilter == 'live' &&
+                                        (chartKey == 'temp' ||
+                                            chartKey == 'ph' ||
+                                            chartKey == 'do' ||
+                                            chartKey == 'turb')),
+                                tightLiveYAxis:
+                                    _activeFilter == 'live' &&
+                                    (chartKey == 'temp' ||
+                                        chartKey == 'ph' ||
+                                        chartKey == 'do' ||
+                                        chartKey == 'turb'),
                                 connectAcrossMissingData:
                                     _activeFilter == '24h',
                                 liveMode: _activeFilter == 'live',

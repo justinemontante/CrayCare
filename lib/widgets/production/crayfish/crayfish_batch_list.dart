@@ -333,12 +333,12 @@ class CrayfishBatchList extends StatelessWidget {
                   ),
                   _miniStat(
                     'ABW',
-                    '${batch.initialAbw.toStringAsFixed(1)}g',
+                    '${batch.initialAbw.toStringAsFixed(2)} g',
                     AppColors.primary,
                   ),
                   _miniStat(
                     'ABL',
-                    '${batch.initialAblInches.toStringAsFixed(1)} in',
+                    '${batch.initialAblInches.toStringAsFixed(2)} in',
                     AppColors.primary,
                   ),
                 ] else ...[
@@ -350,7 +350,7 @@ class CrayfishBatchList extends StatelessWidget {
                   ),
                   _miniStat(
                     'Final ABW',
-                    '${batch.finalAbw.toStringAsFixed(1)}g',
+                    '${batch.finalAbw.toStringAsFixed(2)} g',
                     statusColor,
                   ),
                 ],

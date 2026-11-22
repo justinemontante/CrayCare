@@ -236,7 +236,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'ABW: ${abwGrams.toStringAsFixed(1)} g',
+                    'ABW: ${abwGrams.toStringAsFixed(2)} g',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -557,7 +557,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${r.harvestedCount} pcs | ${r.totalWeightKg.toStringAsFixed(2)}kg | ABW: ${r.abwGrams.toStringAsFixed(1)}g',
+                    '${r.harvestedCount} pcs | ${r.totalWeightKg.toStringAsFixed(2)}kg | ABW: ${r.abwGrams.toStringAsFixed(2)} g',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w500,

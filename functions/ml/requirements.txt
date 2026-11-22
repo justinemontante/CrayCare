@@ -1,7 +1,0 @@
-firebase-functions>=0.5,<1
-firebase-admin>=6,<7
-# Pin the serializer/runtime family used by the Isolation Forest artifact.
-pandas==3.0.3
-numpy==2.5.1
-scikit-learn==1.9.0
-joblib==1.5.3

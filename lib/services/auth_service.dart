@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -12,10 +13,11 @@ String authErrorMessage(Object error) {
       case 'email-already-in-use':
         return 'This email is already registered. Please sign in instead.';
       case 'weak-password':
-        return 'Use a stronger password with at least 6 characters.';
+        return 'Use at least 8 characters, including a number and a special character.';
       case 'invalid-email':
         return 'Please enter a valid email address.';
       case 'invalid-credential':
+      case 'invalid-login-credentials':
       case 'user-not-found':
       case 'wrong-password':
         return 'Incorrect email or password.';
@@ -83,11 +85,13 @@ class AuthService {
   /// in. Give idempotent profile/tank provisioning a short retry window so a
   /// first-time account is never forced to press Google sign-in twice because
   /// another listener briefly observed the account before setup completed.
-  Future<Map<String, dynamic>> _prepareCurrentUserAfterSignIn() async {
+  Future<Map<String, dynamic>> _prepareCurrentUserAfterSignIn([
+    Map<String, dynamic>? initialProfile,
+  ]) async {
     Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        return await prepareCurrentUser();
+        return await prepareCurrentUser(initialProfile);
       } catch (error) {
         lastError = error;
         if (!_isTransientProvisioningError(error) || attempt == 2) rethrow;
@@ -100,7 +104,9 @@ class AuthService {
   /// Validates status and idempotently repairs the Firestore profile and
   /// notification defaults. Tank resources remain exclusive to Tank Setup.
   /// Used after authentication and after email verification.
-  Future<Map<String, dynamic>> prepareCurrentUser() async {
+  Future<Map<String, dynamic>> prepareCurrentUser([
+    Map<String, dynamic>? initialProfile,
+  ]) async {
     final user = _auth.currentUser;
     if (user == null) {
       throw FirebaseAuthException(
@@ -109,28 +115,45 @@ class AuthService {
       );
     }
 
-    var profile = await DatabaseService.instance.getUserProfile(user.uid);
+    var profile = initialProfile ?? await DatabaseService.instance.getUserProfile(user.uid);
     if (_isDisabled(profile)) {
       await signOut();
       throw FirebaseAuthException(code: 'user-disabled');
     }
 
-    await DatabaseService.instance.saveUserProfile(
-      uid: user.uid,
-      name: user.displayName?.trim().isNotEmpty == true
-          ? user.displayName!.trim()
-          : (profile?['full_name']?.toString().trim().isNotEmpty == true
-                ? profile!['full_name'].toString().trim()
-                : 'CrayCare User'),
-      email: user.email ?? profile?['email']?.toString() ?? '',
-      role: profile == null || profile['role'] == null ? 'owner' : null,
-      status: profile == null || profile['status'] == null ? 'active' : null,
-    );
+    final isNewOrIncomplete = profile == null ||
+        profile['role'] == null ||
+        profile['status'] == null;
 
-    profile = await DatabaseService.instance.getUserProfile(user.uid);
-    if (_isDisabled(profile)) {
-      await signOut();
-      throw FirebaseAuthException(code: 'user-disabled');
+    final resolvedName = user.displayName?.trim().isNotEmpty == true
+        ? user.displayName!.trim()
+        : (profile?['full_name']?.toString().trim().isNotEmpty == true
+            ? profile!['full_name'].toString().trim()
+            : 'CrayCare User');
+    final resolvedEmail = user.email ?? profile?['email']?.toString() ?? '';
+
+    if (isNewOrIncomplete) {
+      await DatabaseService.instance.saveUserProfile(
+        uid: user.uid,
+        name: resolvedName,
+        email: resolvedEmail,
+        role: profile == null || profile['role'] == null ? 'owner' : null,
+        status: profile == null || profile['status'] == null ? 'active' : null,
+      );
+      profile = await DatabaseService.instance.getUserProfile(user.uid);
+      if (_isDisabled(profile)) {
+        await signOut();
+        throw FirebaseAuthException(code: 'user-disabled');
+      }
+    } else {
+      // Non-critical profile sync runs in background without blocking sign-in
+      unawaited(
+        DatabaseService.instance.saveUserProfile(
+          uid: user.uid,
+          name: resolvedName,
+          email: resolvedEmail,
+        ),
+      );
     }
 
     _lastAuthenticatedProfile = {
@@ -138,10 +161,9 @@ class AuthService {
       'role': profile?['role'] ?? 'owner',
       'status': profile?['status'] ?? 'active',
     };
-    _lastAdminBootstrapData =
-        _lastAuthenticatedProfile!['role']?.toString().trim().toLowerCase() == 'admin'
-        ? await DatabaseService.instance.getAdminBootstrapData()
-        : null;
+    // Admin bootstrap data is lazily loaded by AdminScreen's own loading spinner
+    // so that initial login transitions immediately without waiting on large datasets.
+    _lastAdminBootstrapData = null;
     return _lastAuthenticatedProfile!;
   }
 
@@ -199,7 +221,7 @@ class AuthService {
             message: 'Please verify your email before signing in.',
           );
         }
-        await _prepareCurrentUserAfterSignIn();
+        await _prepareCurrentUserAfterSignIn(profile);
       }
       return user;
     } on FirebaseAuthException {

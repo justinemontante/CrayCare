@@ -1,87 +1,49 @@
-# 🦞 CrayCare — Smart Crayfish Aquaculture System
+# CrayCare — Smart Crayfish Aquaculture System
 
-IoT-based smart aquaculture monitoring system for crayfish farming.
+CrayCare is a Flutter and Firebase application for monitoring crayfish pond conditions, managing feeding and tank controls, and recording growth and production data.
 
-## Stack
+## Technology stack
 
-| Layer | Tech |
+| Layer | Technology |
 |---|---|
-| Mobile app | Flutter (Android/iOS/Web) |
-| Backend | Firebase (Auth, Firestore, Cloud Functions, FCM, Storage) |
-| ML | Python Cloud Function (unsupervised Machine Learning-Based Water Quality Anomaly Detection using Isolation Forest) |
-| Hardware | ESP32 (ESP-IDF/Arduino via PlatformIO) with temp, pH, DO, turbidity, water-level sensors + auto-feeder + pump + 2 aerators |
+| Mobile application | Dart and Flutter |
+| Backend | Firebase Authentication, Cloud Firestore, Cloud Functions, FCM, and Storage |
+| Hardware | ESP32 firmware using C++ and the Arduino framework, built with PlatformIO |
+| ML development | Python and scikit-learn training scaffold for Random Forest water-quality classification |
 
-## Architecture
+## Current water-quality ML status
 
-```
-ESP32 (dedicated Firebase Email/Password device service account)
-  → writes sensorIngestion/current (+ 10-minute history)
-      → Cloud Function routes to tanks/{tankId}/sensor_readings/latest + history
-          → Flutter app reads live/analytics data
-          → Python WQAD runs on each fresh history record using a continuous two-hour window
-              → one timestamped result in tanks/{tankId}/water_quality_anomaly_detection_history
-                  → app uses the newest processed_at record as latest; dashboard + AI insights
-```
+The dashboard contains a **Water Quality Classification** card. The Random Forest training materials and dataset are in [`ML_WQC/`](ML_WQC/). Its Firebase runtime classifier is grouped under `functions/backend/water_quality_classification/`; other backend functions remain in the same deployable package.
 
-### Machine Learning-Based Water Quality Anomaly Detection
+The previous unsupervised Water Quality Anomaly Detection implementation and its reports are preserved under [`archive/water_quality_anomaly_detection_2026-11-10/`](archive/water_quality_anomaly_detection_2026-11-10/). Those files are not part of the active Flutter or Firebase Functions source configuration.
 
-WQAD learns the usual combined behavior of pH, temperature, dissolved oxygen,
-turbidity, and their recent trends. It returns `Normal`, `Unusual`,
-or `Insufficient`, ranks the main contributing sensors, and generates a
-verification-focused insight and recommendation. It does not classify biological
-safety and does not use sensor-threshold labels. Immediate alerts and actuator
-control remain in the separate threshold-based safety layer.
+## Sensor and application flow
 
-### Android Live Tank Status Widget
+The ESP32 sends sensor readings to Firebase. Cloud Functions route device data to the assigned tank, and the Flutter app presents live readings, history, charts, controls, feeding schedules, and production records. Sensor-threshold alerts and actuator safety checks remain separate from the pending ML classifier.
 
-The resizable Android home-screen widget shows the ESP32 online state, latest
-Water Quality Anomaly Detection and primary concern, all five live sensor values with
-their individual threshold status, the next enabled feeding time, and the last
-refresh time. The Flutter app pushes a cached snapshot to the native widget
-whenever sensor, anomaly-detection, feeder, connectivity, or threshold data changes.
-Tapping the widget opens CrayCare. After installing a build containing the
-feature, add it from the Android launcher widget picker as **CrayCare**.
-
-Single hardware package assigned to one farmer via `hardware_system/currentOwner`
-(admin-managed). Reassignment is instant; previous owner's data is preserved.
-
-Offline behavior: after at least one successful online synchronization, the ESP32
-continues sensing, runs cached feeding schedules locally, and stores 10-minute
-history windows in LittleFS. On reconnect it uploads the backlog oldest-first with
-deterministic IDs to avoid duplicates. Live 5-second snapshots are best-effort and
-are not buffered. A cold power-up with no network cannot know correct wall-clock
-time without an external RTC, so time-based schedules require a previously synced
-clock and uninterrupted power during the outage.
-
-## Firestore schema
+## Firestore documentation
 
 - [`docs/FIRESTORE_STRUCTURE_ACTUAL.md`](docs/FIRESTORE_STRUCTURE_ACTUAL.md)
-- [`docs/craycare_erd.dbml`](docs/craycare_erd.dbml) — normalized 3NF SQL logical ERD for thesis documentation
+- [`docs/craycare_erd.dbml`](docs/craycare_erd.dbml) — logical data model
 
-## ESP32 Firmware
+## ESP32 firmware
 
-PlatformIO project in [`esp/CrayCare/`](esp/CrayCare/) — default env `esp32dev_main`
-(sensor ingestion + feeder + pump/aerator control, Firestore-only, zero RTDB).
+The PlatformIO project is in [`esp/CrayCare/`](esp/CrayCare/). Its default environment is `esp32dev_main`.
 
 - Pinout: [`esp/CrayCare/PINS_CONFIG.txt`](esp/CrayCare/PINS_CONFIG.txt)
 - Serial commands: [`esp/CrayCare/SERIAL_COMMANDS.txt`](esp/CrayCare/SERIAL_COMMANDS.txt)
 
-## Deploy
+## Deployment commands
 
 ```bash
-# Firestore rules + indexes
+# Firestore rules and indexes
 firebase deploy --only firestore:rules,firestore:indexes
 
-# Cloud Functions (Node notifications + Python ML)
+# Configured backend Cloud Functions
 firebase deploy --only functions
 
-# Flash ESP32 (PlatformIO)
+# Flash ESP32
 cd esp/CrayCare && pio run -e esp32dev_main -t upload
 ```
 
-## Notes
-
-- ESP32 authenticates with the dedicated Firebase Email/Password device service account. Firestore rules restrict that session to the currently assigned tank and ESP staging paths. For a future multi-device public deployment, use per-device credentials/custom claims or a protected ingestion endpoint instead of one shared credential.
-- Keep device credentials in the ignored secrets file.
-- Per-user notification preferences live at `users/{uid}/notification_settings/preferences`.
-- Multiple devices per account: all receive push (FCM tokens stored via arrayUnion).
+Removing the old ML codebase from local deployment configuration does not remove an already deployed Cloud Function. Check and retire any existing WQAD Cloud Function separately before treating the cloud deployment as disabled.

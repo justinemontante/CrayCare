@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../widgets/section_label.dart';
-import '../widgets/dashboard/water_quality_anomaly_detection_card.dart';
+import '../widgets/dashboard/water_quality_classification_card.dart';
+import '../services/database_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/tank_service.dart';
@@ -40,6 +41,13 @@ class DashboardScreenState extends State<DashboardScreen>
   bool _isTabActive = true;
   String? _profileFirstName;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _classificationAssignmentSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _classificationResultSub;
+  String? _classificationTankId;
+  Map<String, dynamic>? _classificationData;
+  bool _classificationReadError = false;
 
   @override
   void initState() {
@@ -59,6 +67,7 @@ class DashboardScreenState extends State<DashboardScreen>
     FeedState.feederLogs.addListener(_refreshUI);
     _refreshUI();
     _listenToProfileName();
+    _listenToWaterQualityClassification();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _isTabActive) setState(() {});
     });
@@ -91,9 +100,97 @@ class DashboardScreenState extends State<DashboardScreen>
         });
   }
 
+  void _listenToWaterQualityClassification() {
+    _classificationAssignmentSub?.cancel();
+    _classificationAssignmentSub = DatabaseService.instance
+        .streamCurrentOwner()
+        .listen(
+          (assignment) {
+            final tankId = assignment.data()?['tank_id']?.toString().trim();
+            if (tankId == null || tankId.isEmpty) {
+              _classificationResultSub?.cancel();
+              _classificationTankId = null;
+              if (mounted) {
+                setState(() {
+                  _classificationData = null;
+                  _classificationReadError = false;
+                });
+              }
+              return;
+            }
+            if (_classificationTankId == tankId) return;
+
+            _classificationTankId = tankId;
+            _classificationResultSub?.cancel();
+            if (mounted) {
+              setState(() {
+                _classificationData = null;
+                _classificationReadError = false;
+              });
+            }
+            _classificationResultSub = FirebaseFirestore.instance
+                .collection('tanks')
+                .doc(tankId)
+                .collection('water_quality_classification')
+                .doc('latest')
+                .snapshots()
+                .listen(
+                  (result) {
+                    if (!mounted || _classificationTankId != tankId) return;
+                    setState(() {
+                      _classificationData = result.data();
+                      _classificationReadError = false;
+                    });
+                  },
+                  onError: (Object _) {
+                    if (!mounted || _classificationTankId != tankId) return;
+                    setState(() => _classificationReadError = true);
+                  },
+                );
+          },
+          onError: (Object _) {
+            if (!mounted) return;
+            setState(() => _classificationReadError = true);
+          },
+        );
+  }
+
+  DateTime? _classificationReadingTime() {
+    final value = _classificationData?['source_recorded_at'];
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  Widget _buildWaterQualityClassificationCard() {
+    final data = _classificationData;
+    final rawClassCode = data?['class_code'];
+    final predictionStatus = _classificationReadError
+        ? 'unavailable'
+        : data?['prediction_status']?.toString() ?? 'awaiting_reading';
+
+    return WaterQualityClassificationCard(
+      predictionStatus: predictionStatus,
+      classCode: rawClassCode is num ? rawClassCode.toInt() : null,
+      classLabel: data?['class_label']?.toString(),
+      insight: data?['insight']?.toString(),
+      recommendation: data?['recommendation']?.toString(),
+      sourceRecordedAt: _classificationReadingTime(),
+      onHistoryTap: _classificationTankId == null
+          ? null
+          : () => showWaterQualityClassificationHistory(
+              context,
+              tankId: _classificationTankId!,
+              initialDate: _classificationReadingTime(),
+            ),
+    );
+  }
+
   @override
   void dispose() {
     _profileSub?.cancel();
+    _classificationAssignmentSub?.cancel();
+    _classificationResultSub?.cancel();
     _quickActionsController.dispose();
     SensorService.instance.removeListener(_refreshUI);
     SettingsService.instance.removeListener(_refreshUI);
@@ -204,11 +301,12 @@ class DashboardScreenState extends State<DashboardScreen>
                 children: [
                   _buildGreeting(),
                   _buildConnectionBanner(),
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: SectionLabel(
                       label: 'Water Quality Overview',
-                      showLiveData: false,
+                      showLiveData: SensorService.instance.isEspOnline,
+                      liveLabel: 'Live',
                       icon: Icons.water_drop_outlined,
                       topPadding: 4,
                     ),
@@ -224,15 +322,7 @@ class DashboardScreenState extends State<DashboardScreen>
                   ),
                   _buildPhysicalParameterRow(context),
                   const SizedBox(height: 12),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: SectionLabel(
-                      label: 'Water Quality Analysis',
-                      showLiveData: false,
-                      icon: Icons.psychology_alt_outlined,
-                    ),
-                  ),
-                  const WaterQualityAnomalyDetectionCard(),
+                  _buildWaterQualityClassificationCard(),
                   const SizedBox(height: 12),
                   _buildQuickActionsHeader(),
                   _buildQuickActions(),
@@ -360,16 +450,18 @@ class DashboardScreenState extends State<DashboardScreen>
     final hasAnyData = SensorService.sensorKeys.any((k) => ss.hasSensorData(k));
     final error = ss.lastError;
     final syncing = ss.bufferedEntries > 0;
-    final pendingReadingCount = ss.bufferedEntries;
-    final pendingReadingLabel =
-        pendingReadingCount == 1 ? 'reading' : 'readings';
     final tankService = TankService.instance;
-    final showSyncingBanner = tankService.isInitialized &&
-        ss.initialDataLoaded && error == null && syncing;
+    final showSyncingBanner =
+        tankService.isInitialized &&
+        ss.initialDataLoaded &&
+        error == null &&
+        syncing;
 
-    // Show the banner while the ESP is flushing its offline backlog even if
-    // live data is already flowing again (store-and-forward in progress).
-    // But never let cached readings hide a missing/uninitialized tank.
+    // Keep offline backlog syncing in the background without showing a
+    // temporary status container on the Dashboard.
+    if (showSyncingBanner) return const SizedBox.shrink();
+
+    // Do not let cached readings hide a missing or uninitialized tank.
     if (tankService.isInitialized && hasAnyData && error == null && !syncing) {
       return const SizedBox.shrink();
     }
@@ -389,9 +481,6 @@ class DashboardScreenState extends State<DashboardScreen>
     } else if (!ss.initialDataLoaded) {
       message = 'Connecting to sensors...';
       bannerIcon = Icons.sensors_rounded;
-    } else if (showSyncingBanner) {
-      message = 'Syncing offline readings';
-      bannerIcon = Icons.sync_rounded;
     } else {
       message = 'Sensors offline — waiting for new readings';
       bannerIcon = Icons.wifi_off_rounded;
@@ -412,59 +501,29 @@ class DashboardScreenState extends State<DashboardScreen>
         ),
       ),
       child: Row(
-        crossAxisAlignment: showSyncingBanner
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Padding(
-            padding: EdgeInsets.only(top: showSyncingBanner ? 2 : 0),
-            child: Icon(
-              bannerIcon,
-              size: 16,
-              color: isErrorState
-                  ? const Color(0xFFD84315)
-                  : const Color(0xFFF9A825),
-            ),
+          Icon(
+            bannerIcon,
+            size: 16,
+            color: isErrorState
+                ? const Color(0xFFD84315)
+                : const Color(0xFFF9A825),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: showSyncingBanner
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Syncing offline readings…',
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF795548),
-                        ),
-                      ),
-                      Text(
-                        '$pendingReadingCount $pendingReadingLabel left to upload',
-                        maxLines: 1,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF795548),
-                        ),
-                      ),
-                    ],
-                  )
-                : Text(
-                    message,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: isErrorState
-                          ? const Color(0xFFBF360C)
-                          : const Color(0xFF795548),
-                    ),
-                  ),
+            child: Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: isErrorState
+                    ? const Color(0xFFBF360C)
+                    : const Color(0xFF795548),
+              ),
+            ),
           ),
         ],
       ),
@@ -1013,26 +1072,12 @@ class DashboardScreenState extends State<DashboardScreen>
             child: Row(
               children: [
                 Expanded(
-                  child: _buildStatColumn(
-                    0,
-                    popStr,
-                    'Initial Population',
-                  ),
+                  child: _buildStatColumn(0, popStr, 'Initial Population'),
                 ),
                 Expanded(
-                  child: _buildStatColumn(
-                    1,
-                    survivalStr,
-                    'Survival Rate',
-                  ),
+                  child: _buildStatColumn(1, survivalStr, 'Survival Rate'),
                 ),
-                Expanded(
-                  child: _buildStatColumn(
-                    2,
-                    aliveStr,
-                    'In Tank',
-                  ),
-                ),
+                Expanded(child: _buildStatColumn(2, aliveStr, 'In Tank')),
                 Expanded(
                   child: _buildStatColumn(
                     3,
@@ -1170,7 +1215,7 @@ class DashboardScreenState extends State<DashboardScreen>
               _buildGrayDetailRow(
                 Icons.monitor_weight_outlined,
                 'Harvest Weight',
-                '${batch.harvestWeightGrams!.toStringAsFixed(1)} g',
+                '${batch.harvestWeightGrams!.toStringAsFixed(2)} g',
               ),
             ],
           ],
@@ -1476,7 +1521,7 @@ class DashboardScreenState extends State<DashboardScreen>
           : lastFedLog.date;
     }
     final lastFedGrams =
-        lastFedLog?.estimatedDispensedGrams ?? lastFedLog?.requestedGrams;
+        lastFedLog?.requestedGrams ?? lastFedLog?.estimatedDispensedGrams;
 
     String nextTime = '--';
     String nextLabel = 'No enabled schedule';
@@ -1948,7 +1993,10 @@ class DashboardScreenState extends State<DashboardScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      sheetAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 260), reverseDuration: Duration(milliseconds: 220)),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
       builder: (ctx) {
         return ListenableBuilder(
           listenable: Listenable.merge([

@@ -178,19 +178,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     );
   }
 
-  void _showSavingMessage() {
-    if (!mounted) return;
-    showBeautifulSnackbar(
-      context,
-      'Applying your new sensor limits.',
-      true,
-      title: 'Saving thresholds…',
-      isLoading: true,
-      duration: const Duration(minutes: 1),
-      animationStyle: _thresholdSnackbarAnimation,
-    );
-  }
-
   void _showValidationSnackbar(BuildContext dialogContext, String message) {
     if (!mounted || !dialogContext.mounted) return;
     _hideValidationSnackbar();
@@ -320,7 +307,6 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
     if (_saving) return false;
     _saving = true;
     if (mounted) setState(() {});
-    _showSavingMessage();
     try {
       await DatabaseService.instance.saveSensorThresholds(
         currentRanges: SettingsService.instance.currentRanges,

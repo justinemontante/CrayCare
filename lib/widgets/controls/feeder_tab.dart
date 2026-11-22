@@ -3,6 +3,59 @@ import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
 import '../../models/control_types.dart';
 import '../../utils/snackbar_helper.dart';
+import '../../services/tank_service.dart';
+import '../../services/feeder_service.dart';
+
+class FeederRecommendation {
+  final int inTankCount;
+  final double abw;
+  final double totalBiomassGrams;
+  final double dailyRationGrams;
+  final double perFeedingGrams;
+  final bool hasData;
+
+  const FeederRecommendation({
+    required this.inTankCount,
+    required this.abw,
+    required this.totalBiomassGrams,
+    required this.dailyRationGrams,
+    required this.perFeedingGrams,
+    required this.hasData,
+  });
+
+  static FeederRecommendation compute() {
+    final tank = TankService.instance;
+    final history = tank.samplingHistory;
+    final weekly = history.where((e) => !e.isBaseline).toList();
+    final latest = weekly.isNotEmpty ? weekly.last : null;
+    final abw = latest != null ? latest.abw : tank.initialWeight;
+    final inTank = tank.inTankCount;
+
+    if (inTank <= 0 || abw <= 0) {
+      return const FeederRecommendation(
+        inTankCount: 0,
+        abw: 0.0,
+        totalBiomassGrams: 0.0,
+        dailyRationGrams: 0.0,
+        perFeedingGrams: 0.0,
+        hasData: false,
+      );
+    }
+
+    final totalBiomass = inTank * abw;
+    final dailyRation = totalBiomass * 0.05; // 5% Biomass rule (Cheng et al., 2025)
+    final perFeed = (dailyRation / 2).roundToDouble().clamp(1.0, 200.0);
+
+    return FeederRecommendation(
+      inTankCount: inTank,
+      abw: abw,
+      totalBiomassGrams: totalBiomass,
+      dailyRationGrams: dailyRation,
+      perFeedingGrams: perFeed,
+      hasData: true,
+    );
+  }
+}
 
 class FeederTab extends StatelessWidget {
   // Feeder schedules are anchored to Asia/Manila wall-clock time to match the
@@ -53,13 +106,19 @@ class FeederTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      child: _buildFeederCardBody(context),
+    return ListenableBuilder(
+      listenable: TankService.instance,
+      builder: (context, _) {
+        final rec = FeederRecommendation.compute();
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: _buildFeederCardBody(context, rec),
+        );
+      },
     );
   }
 
-  Widget _buildFeederCardBody(BuildContext ctx) {
+  Widget _buildFeederCardBody(BuildContext ctx, FeederRecommendation rec) {
     final daytime = schedules.where((s) {
       final minutes = feederScheduleMinutes(s);
       return minutes >= 6 * 60 && minutes < 18 * 60;
@@ -188,14 +247,19 @@ class FeederTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildFeedInventorySummary(),
-            if (schedules.isNotEmpty) ...[_buildCountdown()],
+            const SizedBox(height: 10),
+            _buildFeedingRecommendationCard(ctx, rec),
+            if (schedules.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _buildCountdown(),
+            ],
             const SizedBox(height: 12),
             _buildFeedNowButton(ctx),
             if (waterQualityWarnings.isNotEmpty) ...[
               const SizedBox(height: 10),
               _buildWaterQualityWarning(),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -300,13 +364,1181 @@ class FeederTab extends StatelessWidget {
     );
   }
 
+  Widget _buildFeedingRecommendationCard(
+    BuildContext ctx,
+    FeederRecommendation rec,
+  ) {
+    if (!rec.hasData) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.primaryWith(0.035),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.primaryWith(0.10)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.scale_rounded,
+              size: 16,
+              color: AppColors.primary.withValues(alpha: 0.6),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Record crayfish sampling and stocking data to activate live 5% biomass feeding recommendations.',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  color: AppColors.darkWith(0.5),
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.primaryWith(0.035),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primaryWith(0.10)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: const Icon(
+                    Icons.scale_rounded,
+                    size: 14,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Feeding Recommendation',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.dark,
+                        ),
+                      ),
+                      Text(
+                        '5% of Body Weight · 2x Daily',
+                        style: TextStyle(
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _showFeedingBreakdownModal(ctx, rec),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.help_outline_rounded,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Dose & Apply Action
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${rec.perFeedingGrams.toInt()} g',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            TextSpan(
+                              text: ' / feeding',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkWith(0.7),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        '${rec.dailyRationGrams.round()}g total daily ration (50% split)',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.darkWith(0.45),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 10,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '6:00 AM & 6:00 PM',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showApplyRecommendationModal(ctx, rec),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 12),
+                  label: const Text(
+                    'Apply',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFeedingBreakdownModal(
+    BuildContext ctx,
+    FeederRecommendation rec,
+  ) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
+      builder: (sheetCtx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            10,
+            20,
+            24 + MediaQuery.of(sheetCtx).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.calculate_outlined,
+                        size: 20,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Feeding Calculation',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.dark,
+                            ),
+                          ),
+                          Text(
+                            '5% of Body Weight',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      color: AppColors.darkWith(0.4),
+                      onPressed: () => Navigator.pop(sheetCtx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Live Parameters Strip
+                Text(
+                  'CURRENT TANK PARAMETERS',
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: AppColors.darkWith(0.5),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkWith(0.03),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.darkWith(0.08),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'LIVE STOCK',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkWith(0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${rec.inTankCount} pcs',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            Text(
+                              'Initial − Mortality',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                color: AppColors.darkWith(0.35),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        height: 28,
+                        width: 1,
+                        color: AppColors.darkWith(0.08),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'LATEST ABW',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkWith(0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${rec.abw.toStringAsFixed(1)} g',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.dark,
+                              ),
+                            ),
+                            Text(
+                              'Avg Body Weight',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                color: AppColors.darkWith(0.35),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        height: 28,
+                        width: 1,
+                        color: AppColors.darkWith(0.08),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'EST. BIOMASS',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkWith(0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${(rec.totalBiomassGrams / 1000).toStringAsFixed(2)} kg',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            Text(
+                              '${rec.totalBiomassGrams.toStringAsFixed(1)} g total',
+                              style: TextStyle(
+                                fontSize: 7.5,
+                                color: AppColors.darkWith(0.35),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Step-by-Step Calculation
+                Text(
+                  'STEP-BY-STEP CALCULATION',
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                    color: AppColors.darkWith(0.5),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildComputationStepRow(
+                  stepNum: '1',
+                  title: 'Total Biomass',
+                  formula: 'Population × ABW',
+                  computation:
+                      '${rec.inTankCount} pcs × ${rec.abw.toStringAsFixed(1)}g = ${rec.totalBiomassGrams.toStringAsFixed(1)} g',
+                ),
+                const SizedBox(height: 8),
+                _buildComputationStepRow(
+                  stepNum: '2',
+                  title: 'Daily Feed (5%)',
+                  formula: 'Biomass × 0.05',
+                  computation:
+                      '${rec.totalBiomassGrams.toStringAsFixed(1)}g × 0.05 = ${rec.dailyRationGrams.toStringAsFixed(1)} g / day',
+                ),
+                const SizedBox(height: 8),
+                _buildComputationStepRow(
+                  stepNum: '3',
+                  title: 'Dose per Feed',
+                  formula: '50% split (2x daily)',
+                  computation:
+                      '${rec.dailyRationGrams.toStringAsFixed(1)}g ÷ 2 = ${(rec.dailyRationGrams / 2).toStringAsFixed(1)}g → ${rec.perFeedingGrams.toInt()} g',
+                  isFinal: true,
+                ),
+                const SizedBox(height: 14),
+                // Note banner
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.check_circle_outline_rounded,
+                        size: 15,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Whole numbers only (1 gate swing = 1 gram). Feeding doses automatically recalculate with new sampling or mortality records to prevent overfeeding.',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            height: 1.35,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.darkWith(0.7),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(sheetCtx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'Got It',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildComputationStepRow({
+    required String stepNum,
+    required String title,
+    required String formula,
+    required String computation,
+    bool isFinal = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isFinal
+            ? AppColors.primary.withValues(alpha: 0.06)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isFinal
+              ? AppColors.primary.withValues(alpha: 0.25)
+              : AppColors.darkWith(0.08),
+          width: isFinal ? 1.5 : 1.0,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isFinal ? AppColors.primary : AppColors.darkWith(0.1),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              stepNum,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: isFinal ? Colors.white : AppColors.darkWith(0.6),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: isFinal ? AppColors.primary : AppColors.dark,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      formula,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.darkWith(0.45),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    computation,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: isFinal ? FontWeight.w800 : FontWeight.w600,
+                      color: isFinal ? AppColors.primary : AppColors.darkWith(0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showApplyRecommendationModal(
+    BuildContext ctx,
+    FeederRecommendation rec,
+  ) {
+    final morningIdx = schedules.indexWhere(
+      (s) => feederScheduleMinutes(s) == 6 * 60,
+    );
+    final eveningIdx = schedules.indexWhere(
+      (s) => feederScheduleMinutes(s) == 18 * 60,
+    );
+    final hasMorning = morningIdx != -1;
+    final hasEvening = eveningIdx != -1;
+
+    var includeMorning = true;
+    var includeEvening = true;
+    final recommendedGrams = rec.perFeedingGrams.toInt().clamp(1, 200).toDouble();
+    final selectedDays = <int>{0, 1, 2, 3, 4, 5, 6};
+    var isSaving = false;
+    String? saveError;
+
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 260),
+        reverseDuration: Duration(milliseconds: 220),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            final canSubmit = !isSaving &&
+                selectedDays.isNotEmpty &&
+                (includeMorning || includeEvening);
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                10,
+                20,
+                20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.access_time_rounded,
+                            size: 20,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Apply Feeding Schedules',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.dark,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '${recommendedGrams.toInt()}g per schedule · 5% of Body Weight',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    // Choose Feeding Times
+                    Text(
+                      'Select Feeding Times',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Morning Card (6:00 AM)
+                    GestureDetector(
+                      onTap: () => setSheetState(
+                        () => includeMorning = !includeMorning,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: includeMorning
+                              ? AppColors.primary.withValues(alpha: 0.06)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: includeMorning
+                                ? AppColors.primary
+                                : AppColors.darkWith(0.15),
+                            width: includeMorning ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              includeMorning
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: 20,
+                              color: includeMorning
+                                  ? AppColors.primary
+                                  : AppColors.darkWith(0.3),
+                            ),
+                            const SizedBox(width: 10),
+                            const Icon(
+                              Icons.wb_sunny_outlined,
+                              size: 18,
+                              color: Color(0xFFE5A100),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        '6:00 AM',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        '· Morning',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.darkWith(0.7),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (hasMorning) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.darkWith(0.08),
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                          ),
+                                          child: const Text(
+                                            'Updates Existing',
+                                            style: TextStyle(
+                                              fontSize: 7.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.dark,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    '1st feeding · ${recommendedGrams.toInt()}g (50% daily ration)',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      color: AppColors.darkWith(0.5),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Evening Card (6:00 PM)
+                    GestureDetector(
+                      onTap: () => setSheetState(
+                        () => includeEvening = !includeEvening,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: includeEvening
+                              ? AppColors.primary.withValues(alpha: 0.06)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: includeEvening
+                                ? AppColors.primary
+                                : AppColors.darkWith(0.15),
+                            width: includeEvening ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              includeEvening
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: 20,
+                              color: includeEvening
+                                  ? AppColors.primary
+                                  : AppColors.darkWith(0.3),
+                            ),
+                            const SizedBox(width: 10),
+                            const Icon(
+                              Icons.nightlight_outlined,
+                              size: 18,
+                              color: Color(0xFF6C5CE7),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        '6:00 PM',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.dark,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        '· Evening',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.darkWith(0.7),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (hasEvening) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.darkWith(0.08),
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                          ),
+                                          child: const Text(
+                                            'Updates Existing',
+                                            style: TextStyle(
+                                              fontSize: 7.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.dark,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    '2nd feeding · ${recommendedGrams.toInt()}g (50% daily ration)',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      color: AppColors.darkWith(0.5),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (!includeMorning && !includeEvening) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Select at least one feeding time',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.critical,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    // Repeat on days
+                    Text(
+                      'Repeat on',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkWith(0.6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: List.generate(7, (i) {
+                        final on = selectedDays.contains(i);
+                        return GestureDetector(
+                          onTap: () => setSheetState(() {
+                            if (on) {
+                              selectedDays.remove(i);
+                            } else {
+                              selectedDays.add(i);
+                            }
+                          }),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: on
+                                  ? AppColors.primary
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: on
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.2),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Text(
+                              const ['S', 'M', 'T', 'W', 'T', 'F', 'S'][i],
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: on
+                                    ? Colors.white
+                                    : AppColors.darkWith(0.5),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                    if (selectedDays.isEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Select at least one day',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.critical,
+                        ),
+                      ),
+                    ],
+                    if (saveError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        saveError!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.critical,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    // Submit button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: !canSubmit
+                            ? null
+                            : () async {
+                                final grams = recommendedGrams;
+                                final daysMask = String.fromCharCodes(
+                                  List.generate(
+                                    7,
+                                    (i) => selectedDays.contains(i) ? 49 : 48,
+                                  ),
+                                );
+
+                                setSheetState(() {
+                                  isSaving = true;
+                                  saveError = null;
+                                });
+
+                                try {
+                                  if (includeMorning) {
+                                    if (hasMorning) {
+                                      final existingMorning =
+                                          schedules[morningIdx];
+                                      await onEditSchedule(
+                                        morningIdx,
+                                        ScheduleItem(
+                                          '6:00',
+                                          'AM',
+                                          id: existingMorning.id,
+                                          enabled: true,
+                                          grams: grams,
+                                          days: daysMask,
+                                        ),
+                                      );
+                                    } else {
+                                      await FeederService.instance.addSchedule(
+                                        '6:00',
+                                        'AM',
+                                        grams: grams,
+                                        days: daysMask,
+                                      );
+                                    }
+                                  }
+
+                                  if (includeEvening) {
+                                    if (hasEvening) {
+                                      final existingEvening =
+                                          schedules[eveningIdx];
+                                      await onEditSchedule(
+                                        eveningIdx,
+                                        ScheduleItem(
+                                          '6:00',
+                                          'PM',
+                                          id: existingEvening.id,
+                                          enabled: true,
+                                          grams: grams,
+                                          days: daysMask,
+                                        ),
+                                      );
+                                    } else {
+                                      await FeederService.instance.addSchedule(
+                                        '6:00',
+                                        'PM',
+                                        grams: grams,
+                                        days: daysMask,
+                                      );
+                                    }
+                                  }
+
+                                  if (!sheetCtx.mounted) return;
+                                  Navigator.pop(sheetCtx);
+
+                                  final timesLabel = includeMorning &&
+                                          includeEvening
+                                      ? '6:00 AM & 6:00 PM'
+                                      : (includeMorning
+                                          ? '6:00 AM'
+                                          : '6:00 PM');
+                                  showBeautifulSnackbar(
+                                    ctx,
+                                    'Applied $timesLabel feeding (${grams.toInt()}g per feed).',
+                                    true,
+                                  );
+                                } catch (e) {
+                                  if (!sheetCtx.mounted) return;
+                                  setSheetState(() {
+                                    isSaving = false;
+                                    saveError =
+                                        'Could not save schedules. Check connection and retry.';
+                                  });
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          disabledBackgroundColor: Colors.grey.shade300,
+                          foregroundColor: Colors.white,
+                          disabledForegroundColor: Colors.grey.shade500,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  includeMorning && includeEvening
+                                      ? 'Apply 6:00 AM & 6:00 PM (${recommendedGrams.toInt()}g each)'
+                                      : (includeMorning
+                                          ? 'Apply 6:00 AM (${recommendedGrams.toInt()}g)'
+                                          : (includeEvening
+                                              ? 'Apply 6:00 PM (${recommendedGrams.toInt()}g)'
+                                              : 'Select a Schedule Time')),
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildWaterQualityWarning() {
     const staleSuffix = ' reading is stale or unavailable';
     final staleSensors = <String>[];
     final otherWarnings = <String>[];
     for (final warning in waterQualityWarnings) {
       if (warning.endsWith(staleSuffix)) {
-        staleSensors.add(warning.substring(0, warning.length - staleSuffix.length));
+        staleSensors.add(
+          warning.substring(0, warning.length - staleSuffix.length),
+        );
       } else {
         otherWarnings.add(warning);
       }
@@ -1289,6 +2521,171 @@ class FeederTab extends StatelessWidget {
     );
   }
 
+  List<Widget> _buildGroupedFeederLogs() {
+    final groups = <String, List<LogEntry>>{};
+    for (final log in feederLogs) {
+      final act = log.action.toLowerCase();
+      // Only include actual dispensing events (ignore schedule toggle/config changes)
+      if (!act.contains('dispens') && !act.contains('feed')) {
+        continue;
+      }
+      final date = log.date.isEmpty ? 'Date unavailable' : log.date;
+      groups.putIfAbsent(date, () => <LogEntry>[]).add(log);
+    }
+
+    final now = _manilaNow();
+    final today = _formatFeederLogDate(now);
+    final yesterday = _formatFeederLogDate(
+      now.subtract(const Duration(days: 1)),
+    );
+
+    return [
+      for (final group in groups.entries) ...[
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 7),
+          child: Row(
+            children: [
+              Icon(
+                Icons.calendar_today_rounded,
+                size: 11,
+                color: AppColors.primary.withValues(alpha: 0.8),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                group.key == today
+                    ? 'Today · ${group.key}'
+                    : group.key == yesterday
+                    ? 'Yesterday · ${group.key}'
+                    : group.key,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.dark,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(height: 1, color: AppColors.darkWith(0.08)),
+              ),
+            ],
+          ),
+        ),
+        for (final log in group.value) _buildFeederLogEntry(log),
+      ],
+    ];
+  }
+
+  String _formatFeederLogDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Widget _buildFeederLogEntry(LogEntry log) {
+    final isIssue =
+        log.status == 'skipped_insufficient' ||
+        log.status == 'blocked' ||
+        log.status == 'failed' ||
+        log.type == 'error';
+    final dotColor = isIssue
+        ? AppColors.critical
+        : log.type == 'auto'
+        ? AppColors.primary
+        : AppColors.warning;
+    final statusLabel = _feedStatusLabel(log.status);
+    final displayGrams = log.requestedGrams ?? log.estimatedDispensedGrams;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.darkWith(0.03),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  log.action,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.dark,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  log.time.isEmpty ? 'Time unavailable' : log.time,
+                  style: TextStyle(fontSize: 9, color: AppColors.darkWith(0.4)),
+                ),
+                if (statusLabel.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: log.status == 'completed' || log.status == 'forced'
+                          ? AppColors.success
+                          : AppColors.critical,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (displayGrams != null) ...[
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'EST. GRAMS',
+                  style: TextStyle(
+                    fontSize: 7,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.35,
+                    color: AppColors.darkWith(0.45),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '~${displayGrams.toStringAsFixed(0)} g',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.dark,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   void _showFeederLog(BuildContext ctx) {
     showModalBottomSheet(
       context: ctx,
@@ -1307,7 +2704,7 @@ class FeederTab extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.5,
+                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.75,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1377,133 +2774,7 @@ class FeederTab extends StatelessWidget {
                             ),
                           )
                         : SingleChildScrollView(
-                            child: Column(
-                              children: feederLogs
-                                  .take(20)
-                                  .map(
-                                    (l) => Container(
-                                      margin: const EdgeInsets.only(bottom: 6),
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.darkWith(0.03),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: BoxDecoration(
-                                              color:
-                                                  l.status ==
-                                                          'skipped_insufficient' ||
-                                                      l.status == 'blocked' ||
-                                                      l.status == 'failed' ||
-                                                      l.type == 'error'
-                                                  ? AppColors.critical
-                                                  : l.type == 'auto'
-                                                  ? AppColors.primary
-                                                  : AppColors.warning,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  l.action,
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: AppColors.dark,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 1),
-                                                Text(
-                                                  '${l.date} \u00B7 ${l.time}',
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    color: AppColors.darkWith(
-                                                      0.4,
-                                                    ),
-                                                  ),
-                                                ),
-                                                if (_feedStatusLabel(
-                                                  l.status,
-                                                ).isNotEmpty) ...[
-                                                  const SizedBox(height: 3),
-                                                  Text(
-                                                    _feedStatusLabel(l.status),
-                                                    style: TextStyle(
-                                                      fontSize: 9,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      color:
-                                                          l.status ==
-                                                                  'completed' ||
-                                                              l.status ==
-                                                                  'forced'
-                                                          ? AppColors.success
-                                                          : AppColors.critical,
-                                                    ),
-                                                  ),
-                                                ],
-                                                if (l.requestedGrams !=
-                                                    null) ...[
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    [
-                                                      'Dose ${l.requestedGrams!.toStringAsFixed(0)}g',
-                                                      if (l.estimatedDispensedGrams !=
-                                                          null)
-                                                        'Est. dispensed ~${l.estimatedDispensedGrams!.toStringAsFixed(0)}g',
-                                                      if (l.feedLevelBefore !=
-                                                          null)
-                                                        'Before ${l.feedLevelBefore!.toStringAsFixed(0)}%',
-                                                      if (l.feedLevelAfter !=
-                                                          null)
-                                                        'After ${l.feedLevelAfter!.toStringAsFixed(0)}%',
-                                                    ].join('  •  '),
-                                                    style: TextStyle(
-                                                      fontSize: 8,
-                                                      height: 1.35,
-                                                      color: AppColors.darkWith(
-                                                        0.55,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  if (l.status == 'completed' &&
-                                                      l.levelChangeDetected ==
-                                                          false)
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.only(
-                                                            top: 3,
-                                                          ),
-                                                      child: Text(
-                                                        'Possible dispense issue: no detectable level change',
-                                                        style: TextStyle(
-                                                          fontSize: 8,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                          color:
-                                                              AppColors.warning,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
+                            child: Column(children: _buildGroupedFeederLogs()),
                           ),
                   ),
                   const SizedBox(height: 12),
@@ -1553,9 +2824,10 @@ class FeederTab extends StatelessWidget {
     } else {
       selectedTime = const TimeOfDay(hour: 6, minute: 0);
     }
+    final rec = FeederRecommendation.compute();
     final existingGrams = existing?.grams;
     final initialGramsText = existingGrams == null
-        ? ''
+        ? (rec.hasData ? rec.perFeedingGrams.toInt().toString() : '')
         : (existingGrams.isFinite &&
                   existingGrams >= 1 &&
                   existingGrams <= 200 &&
@@ -1671,6 +2943,158 @@ class FeederTab extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    // Quick Times
+                    Row(
+                      children: [
+                        Text(
+                          'Quick Times:',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkWith(0.5),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setSheetState(
+                            () => selectedTime =
+                                const TimeOfDay(hour: 6, minute: 0),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selectedTime.hour == 6 &&
+                                      selectedTime.minute == 0
+                                  ? AppColors.primary.withValues(alpha: 0.12)
+                                  : AppColors.darkWith(0.04),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: selectedTime.hour == 6 &&
+                                        selectedTime.minute == 0
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.12),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.wb_sunny_outlined,
+                                  size: 12,
+                                  color: Color(0xFFE5A100),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '6:00 AM',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: selectedTime.hour == 6 &&
+                                            selectedTime.minute == 0
+                                        ? AppColors.primary
+                                        : AppColors.dark,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () => setSheetState(
+                            () => selectedTime =
+                                const TimeOfDay(hour: 18, minute: 0),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selectedTime.hour == 18 &&
+                                      selectedTime.minute == 0
+                                  ? AppColors.primary.withValues(alpha: 0.12)
+                                  : AppColors.darkWith(0.04),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: selectedTime.hour == 18 &&
+                                        selectedTime.minute == 0
+                                    ? AppColors.primary
+                                    : AppColors.darkWith(0.12),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.nightlight_outlined,
+                                  size: 12,
+                                  color: Color(0xFF6C5CE7),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '6:00 PM',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: selectedTime.hour == 18 &&
+                                            selectedTime.minute == 0
+                                        ? AppColors.primary
+                                        : AppColors.dark,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (rec.hasData) ...[
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () {
+                          setSheetState(() {
+                            gramsCtl.text = '${rec.perFeedingGrams.toInt()}';
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.scale_rounded,
+                                size: 12,
+                                color: AppColors.primary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Use 5% Body Weight: ${rec.perFeedingGrams.toInt()}g',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     // Grams field
                     TextField(
@@ -1810,13 +3234,15 @@ class FeederTab extends StatelessWidget {
                                 final h12 = h % 12 == 0 ? 12 : h % 12;
                                 final timeStr =
                                     '$h12:${m.toString().padLeft(2, '0')}';
-                                final grams = double.tryParse(
+                                final intVal = int.tryParse(
                                   gramsCtl.text.trim(),
                                 );
-                                if (grams == null ||
-                                    validateFeederGrams(grams) != null) {
+                                if (intVal == null ||
+                                    intVal < 1 ||
+                                    intVal > 200) {
                                   return;
                                 }
+                                final grams = intVal.toDouble();
                                 final daysMask = String.fromCharCodes(
                                   List.generate(
                                     7,

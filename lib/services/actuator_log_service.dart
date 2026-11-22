@@ -112,7 +112,6 @@ class ActuatorLogService extends ChangeNotifier {
       final sub = tankLogsRef
           .where('actuator_type', isEqualTo: actuatorId)
           .orderBy('logged_at', descending: true)
-          .limit(50)
           .snapshots()
           .listen(
             (snapshot) {

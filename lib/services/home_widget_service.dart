@@ -9,7 +9,6 @@ import 'connectivity_service.dart';
 import 'feeder_service.dart';
 import 'sensor_service.dart';
 import 'settings_service.dart';
-import 'water_quality_anomaly_detection_service.dart';
 
 /// Keeps the Android home-screen widget synchronized with CrayCare's existing
 /// realtime services. The native widget reads this compact cached snapshot, so
@@ -33,7 +32,6 @@ class HomeWidgetService {
 
     SensorService.instance.addListener(_scheduleSync);
     SettingsService.instance.addListener(_scheduleSync);
-    WaterQualityAnomalyDetectionService.instance.addListener(_scheduleSync);
     FeederService.instance.addListener(_scheduleSync);
     ConnectivityService.instance.addListener(_scheduleSync);
     _authSub = FirebaseAuth.instance.authStateChanges().listen((_) {
@@ -53,15 +51,14 @@ class HomeWidgetService {
   Future<void> _writeSnapshot() async {
     final user = FirebaseAuth.instance.currentUser;
     final sensors = SensorService.instance;
-    final anomaly = WaterQualityAnomalyDetectionService.instance.result;
     final snapshot = <String, Object>{};
 
     if (user == null) {
       snapshot.addAll({
         'widget_signed_in': false,
         'widget_online': false,
-        'widget_wqad': 'SIGN IN REQUIRED',
-        'widget_concern': 'Open CrayCare to sign in',
+        'widget_classification_status': 'SIGN IN REQUIRED',
+        'widget_classification_insight': 'Open CrayCare to sign in',
         'widget_temperature_value': '--',
         'widget_temperature_status': 'UNKNOWN',
         'widget_ph_value': '--',
@@ -84,18 +81,9 @@ class HomeWidgetService {
 
     snapshot['widget_signed_in'] = true;
     snapshot['widget_online'] = sensors.isEspOnline;
-    snapshot['widget_wqad'] = anomaly?.isCurrent == true
-        ? anomaly!.status.toUpperCase()
-        : anomaly?.hasData == true
-        ? 'STALE'
-        : 'WAITING';
-    snapshot['widget_concern'] = anomaly?.isCurrent == true
-        ? _formatConcern(anomaly!)
-        : anomaly?.hasData == true
-        ? 'ML analysis is over 90 minutes old'
-        : anomaly?.source == 'Stale sensor history'
-        ? 'Sensor history is stale; check connectivity'
-        : 'Collecting anomaly baseline';
+    snapshot['widget_classification_status'] = 'MODEL PENDING';
+    snapshot['widget_classification_insight'] =
+        'Classification model is not connected';
 
     _writeSensor(snapshot, 'temp', 'temperature', '°C', decimals: 1);
     _writeSensor(snapshot, 'ph', 'ph', '', decimals: 2);
@@ -150,28 +138,6 @@ class HomeWidgetService {
         : zone;
   }
 
-  String _formatConcern(WaterQualityAnomalyDetectionResult anomaly) {
-    if (!anomaly.isAnomaly) return 'Combined sensor pattern is normal';
-    if (anomaly.driver == 'overall') return 'Unusual combined pattern';
-    const sensorKey = {
-      'temp': 'temp',
-      'pH': 'ph',
-      'DO': 'do',
-      'turbidity': 'turb',
-      'waterLevel': 'waterlevel',
-    };
-    final key = sensorKey[anomaly.driver];
-    if (key == null) return anomaly.driverLabel;
-    final trend = SensorService.instance.getTrendRate(key);
-    final threshold = switch (key) {
-      'ph' => 0.01,
-      'turb' => 0.10,
-      _ => 0.03,
-    };
-    if (trend.abs() < threshold) return anomaly.driverLabel;
-    return '${anomaly.driverLabel} ${trend < 0 ? 'decreasing' : 'increasing'}';
-  }
-
   String _formatFeedOccurrence(DateTime value, DateTime now) {
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final valueDate = DateTime(value.year, value.month, value.day);
@@ -224,7 +190,6 @@ class HomeWidgetService {
     _authSub?.cancel();
     SensorService.instance.removeListener(_scheduleSync);
     SettingsService.instance.removeListener(_scheduleSync);
-    WaterQualityAnomalyDetectionService.instance.removeListener(_scheduleSync);
     FeederService.instance.removeListener(_scheduleSync);
     ConnectivityService.instance.removeListener(_scheduleSync);
     _initialized = false;

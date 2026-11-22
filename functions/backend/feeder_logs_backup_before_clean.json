@@ -1,0 +1,5827 @@
+[
+  {
+    "id": "6z6vj2QOL466SQbZPg6a",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794788890,
+      "_nanoseconds": 150000000
+    }
+  },
+  {
+    "id": "7qeqGwemlkATylLroqos",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566810,
+      "_nanoseconds": 693000000
+    }
+  },
+  {
+    "id": "9FowJuk7APKCqqHFF46t",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794494645,
+      "_nanoseconds": 569000000
+    }
+  },
+  {
+    "id": "9ksnhsgvjSzx8aHFgKAR",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794637845,
+      "_nanoseconds": 222000000
+    }
+  },
+  {
+    "id": "C4LyijVwo1LpAqnGWD14",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794651152,
+      "_nanoseconds": 397000000
+    }
+  },
+  {
+    "id": "CaHoZe00mFSscHbFbZnW",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794583705,
+      "_nanoseconds": 754000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_674",
+    "requested_grams": 1,
+    "feed_level_after": 100,
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "estimated_dispensed_grams": 1,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_before": 100,
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1792747991,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1792747999,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_675",
+    "occurrence_at": {
+      "_seconds": 1792749608,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "requested_grams": 1,
+    "logged_at": {
+      "_seconds": 1792749609,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable"
+  },
+  {
+    "id": "ESP_E08CFE18009C_676",
+    "status": "completed",
+    "type": "manual",
+    "requested_grams": 1,
+    "action": "Dispensed feed (Onsite Button)",
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": false,
+    "estimated_dispensed_grams": 1,
+    "logged_at": {
+      "_seconds": 1792989098,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_after": 95.9,
+    "feed_level_before": 95.7,
+    "occurrence_at": {
+      "_seconds": 1792989091,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425982,
+      "_nanoseconds": 643000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_677",
+    "feed_level_after": 100,
+    "trigger_source": "physical_button",
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 1,
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1792990144,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 100,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1792990152,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 1,
+    "level_change_detected": false,
+    "status": "completed",
+    "action": "Dispensed feed (Onsite Button)",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425997,
+      "_nanoseconds": 680000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_678",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1792991432,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "level_change_detected": false,
+    "status": "completed",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "feed_level_after": 100,
+    "logged_at": {
+      "_seconds": 1792991441,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 100,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425658,
+      "_nanoseconds": 326000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_679",
+    "requested_grams": 1,
+    "type": "auto",
+    "trigger_source": "physical_button",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "logged_at": {
+      "_seconds": 1793004108,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793004107,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_680",
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 2,
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_after": 100,
+    "feed_level_before": 100,
+    "occurrence_at": {
+      "_seconds": 1793008230,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "logged_at": {
+      "_seconds": 1793008238,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425930,
+      "_nanoseconds": 26000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_681",
+    "trigger_source": "physical_button",
+    "feed_level_before": 0,
+    "requested_grams": 1,
+    "type": "auto",
+    "feed_level_after": 0,
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793008263,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793008264,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "action": "Skipped - Critical feed level",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793028776,
+      "_nanoseconds": 249000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_682",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 2,
+    "status": "blocked",
+    "occurrence_at": {
+      "_seconds": 1793008544,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793008553,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button"
+  },
+  {
+    "id": "ESP_E08CFE18009C_683",
+    "feed_level_after": 16.8,
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual",
+    "requested_grams": 2,
+    "status": "completed",
+    "feed_level_before": 17.7,
+    "estimated_dispensed_grams": 2,
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "level_change_detected": true,
+    "occurrence_at": {
+      "_seconds": 1793008573,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793008584,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425622,
+      "_nanoseconds": 273000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_686",
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "status": "completed",
+    "requested_grams": 2,
+    "feed_level_after": 20.6,
+    "estimated_dispensed_grams": 2,
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793009154,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793009170,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 12,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426040,
+      "_nanoseconds": 819000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_688",
+    "estimated_dispensed_grams": 1,
+    "logged_at": {
+      "_seconds": 1793009598,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "occurrence_at": {
+      "_seconds": 1793009588,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "feed_level_before": 64.6,
+    "requested_grams": 1,
+    "trigger_source": "physical_button",
+    "feed_level_after": 64.6,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425972,
+      "_nanoseconds": 653000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_689",
+    "logged_at": {
+      "_seconds": 1793010255,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "trigger_source": "physical_button",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 1,
+    "requested_grams": 1,
+    "level_change_detected": false,
+    "status": "completed",
+    "feed_level_before": 100,
+    "feed_level_after": 100,
+    "occurrence_at": {
+      "_seconds": 1793010242,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425750,
+      "_nanoseconds": 273000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_690",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793010520,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 1,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_before": 57.1,
+    "status": "completed",
+    "requested_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793010512,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_after": 57.1,
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426088,
+      "_nanoseconds": 758000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_691",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 3,
+    "type": "manual",
+    "level_change_detected": false,
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793010540,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793010550,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_before": 57.1,
+    "requested_grams": 3,
+    "feed_level_after": 61.7,
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425794,
+      "_nanoseconds": 557000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_692",
+    "logged_at": {
+      "_seconds": 1793010587,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 3,
+    "occurrence_at": {
+      "_seconds": 1793010577,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_after": 83.5,
+    "status": "completed",
+    "feed_level_before": 75.1,
+    "trigger_source": "physical_button",
+    "requested_grams": 3,
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425850,
+      "_nanoseconds": 490000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_693",
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": true,
+    "logged_at": {
+      "_seconds": 1793010699,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 88,
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793010688,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 79.7,
+    "requested_grams": 2,
+    "status": "completed",
+    "estimated_dispensed_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425895,
+      "_nanoseconds": 591000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_694",
+    "logged_at": {
+      "_seconds": 1793011283,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_before": 14.7,
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": false,
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "feed_level_after": 23.3,
+    "occurrence_at": {
+      "_seconds": 1793011275,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 2,
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425651,
+      "_nanoseconds": 385000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_695",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": true,
+    "requested_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793011386,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "feed_level_after": 13.9,
+    "feed_level_before": 17.7,
+    "trigger_source": "physical_button",
+    "estimated_dispensed_grams": 2,
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793011394,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425714,
+      "_nanoseconds": 447000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_696",
+    "level_change_detected": true,
+    "feed_level_before": 16.8,
+    "estimated_dispensed_grams": 3,
+    "logged_at": {
+      "_seconds": 1793011480,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 3,
+    "status": "completed",
+    "type": "manual",
+    "feed_level_after": 3.4,
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793011470,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425872,
+      "_nanoseconds": 578000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_701",
+    "estimated_dispensed_grams": 3,
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793012020,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 3,
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793012029,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 11.3,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425810,
+      "_nanoseconds": 596000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_702",
+    "feed_level_before": 0,
+    "status": "skipped_insufficient",
+    "feed_level_after": 0,
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1793012125,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793012124,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 3,
+    "action": "Skipped - Critical feed level",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425893,
+      "_nanoseconds": 383000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_703",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_after": 60.9,
+    "feed_level_before": 56.4,
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793012195,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793012187,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 3,
+    "level_change_detected": false,
+    "estimated_dispensed_grams": 3,
+    "amount_basis": "servo_cycle_estimate",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425854,
+      "_nanoseconds": 497000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_704",
+    "feed_level_after": 64.6,
+    "requested_grams": 1,
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793012281,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793012288,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_before": 60.9,
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "estimated_dispensed_grams": 1,
+    "level_change_detected": false,
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425896,
+      "_nanoseconds": 592000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_705",
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 1,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "estimated_dispensed_grams": 1,
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793012378,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 58.1,
+    "occurrence_at": {
+      "_seconds": 1793012372,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 58.1,
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426062,
+      "_nanoseconds": 686000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_706",
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793012520,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "status": "completed",
+    "estimated_dispensed_grams": 4,
+    "feed_level_before": 69.3,
+    "level_change_detected": true,
+    "feed_level_after": 64.6,
+    "occurrence_at": {
+      "_seconds": 1793012512,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 4,
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425958,
+      "_nanoseconds": 653000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_707",
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 2,
+    "level_change_detected": false,
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793012655,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "feed_level_before": 6.5,
+    "status": "completed",
+    "feed_level_after": 21.4,
+    "estimated_dispensed_grams": 2,
+    "logged_at": {
+      "_seconds": 1793012663,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425884,
+      "_nanoseconds": 560000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_708",
+    "occurrence_at": {
+      "_seconds": 1793012728,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 4,
+    "requested_grams": 4,
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_before": 13.9,
+    "logged_at": {
+      "_seconds": 1793012736,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": true,
+    "feed_level_after": 0,
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425891,
+      "_nanoseconds": 563000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_709",
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_before": 23.5,
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793079213,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 27.9,
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793079206,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425776,
+      "_nanoseconds": 563000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_710",
+    "feed_level_after": 23.5,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "action": "Dispensed feed (Onsite Button)",
+    "estimated_dispensed_grams": 4,
+    "requested_grams": 4,
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793079224,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 23.3,
+    "logged_at": {
+      "_seconds": 1793079231,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425901,
+      "_nanoseconds": 629000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_711",
+    "feed_level_before": 23.5,
+    "feed_level_after": 28.1,
+    "estimated_dispensed_grams": 2,
+    "logged_at": {
+      "_seconds": 1793079254,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 2,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793079247,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "status": "completed",
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425945,
+      "_nanoseconds": 921000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_712",
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793079609,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793079603,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "requested_grams": 1,
+    "trigger_source": "physical_button",
+    "feed_level_after": 31.9,
+    "feed_level_before": 31.9,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425894,
+      "_nanoseconds": 620000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_721",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793090267,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "requested_grams": 9,
+    "logged_at": {
+      "_seconds": 1793090268,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_722",
+    "occurrence_at": {
+      "_seconds": 1793090292,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "type": "auto",
+    "requested_grams": 2,
+    "logged_at": {
+      "_seconds": 1793090294,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_723",
+    "status": "completed",
+    "feed_level_before": 88.3,
+    "logged_at": {
+      "_seconds": 1793090333,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 3,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "level_change_detected": false,
+    "requested_grams": 3,
+    "type": "manual",
+    "feed_level_after": 100,
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793090324,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425940,
+      "_nanoseconds": 617000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_724",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793091066,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "requested_grams": 3,
+    "status": "blocked",
+    "occurrence_at": {
+      "_seconds": 1793091065,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_725",
+    "requested_grams": 2,
+    "trigger_source": "physical_button",
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793091084,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793091085,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked"
+  },
+  {
+    "id": "ESP_E08CFE18009C_726",
+    "requested_grams": 1,
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793092988,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793092987,
+      "_nanoseconds": 0
+    },
+    "status": "blocked"
+  },
+  {
+    "id": "ESP_E08CFE18009C_727",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793096249,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "requested_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793096247,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_746",
+    "trigger_source": "physical_button",
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "type": "manual",
+    "estimated_dispensed_grams": 1,
+    "requested_grams": 1,
+    "logged_at": {
+      "_seconds": 1793258907,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793258875,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 53.5,
+    "feed_level_before": 53.3,
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425725,
+      "_nanoseconds": 372000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_747",
+    "requested_grams": 3,
+    "occurrence_at": {
+      "_seconds": 1793259039,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": true,
+    "estimated_dispensed_grams": 3,
+    "feed_level_before": 67.6,
+    "type": "manual",
+    "feed_level_after": 62.8,
+    "logged_at": {
+      "_seconds": 1793259049,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425687,
+      "_nanoseconds": 355000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_748",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 2,
+    "type": "manual",
+    "requested_grams": 2,
+    "trigger_source": "physical_button",
+    "feed_level_before": 62.8,
+    "status": "completed",
+    "logged_at": {
+      "_seconds": 1793259163,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 62.8,
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793259154,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425699,
+      "_nanoseconds": 387000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_749",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "requested_grams": 2,
+    "estimated_dispensed_grams": 2,
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793259264,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 58,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "trigger_source": "physical_button",
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793259256,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 58.1,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425836,
+      "_nanoseconds": 367000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_750",
+    "estimated_dispensed_grams": 3,
+    "action": "Dispensed feed (Onsite Button)",
+    "requested_grams": 3,
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793259351,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "feed_level_after": 64.6,
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793259342,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "feed_level_before": 64.6,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425628,
+      "_nanoseconds": 357000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_751",
+    "trigger_source": "physical_button",
+    "action": "Dispensed feed (Onsite Button)",
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 2,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793259447,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 45.1,
+    "status": "completed",
+    "requested_grams": 2,
+    "logged_at": {
+      "_seconds": 1793259455,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 45.1,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425881,
+      "_nanoseconds": 565000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_752",
+    "trigger_source": "physical_button",
+    "estimated_dispensed_grams": 1,
+    "feed_level_before": 45.8,
+    "status": "completed",
+    "logged_at": {
+      "_seconds": 1793259563,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "requested_grams": 1,
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793259557,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 48.9,
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425765,
+      "_nanoseconds": 450000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_753",
+    "feed_level_before": 67.6,
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793259640,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "requested_grams": 2,
+    "feed_level_after": 71.3,
+    "estimated_dispensed_grams": 2,
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793259648,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426019,
+      "_nanoseconds": 647000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_754",
+    "requested_grams": 2,
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual",
+    "feed_level_after": 86.4,
+    "occurrence_at": {
+      "_seconds": 1793259728,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793259737,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 86.3,
+    "status": "completed",
+    "estimated_dispensed_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426002,
+      "_nanoseconds": 506000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_755",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 3,
+    "action": "Dispensed feed (Onsite Button)",
+    "requested_grams": 3,
+    "feed_level_after": 86.3,
+    "logged_at": {
+      "_seconds": 1793259808,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_before": 86.3,
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793259798,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425841,
+      "_nanoseconds": 556000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_756",
+    "logged_at": {
+      "_seconds": 1793259965,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793259955,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "feed_level_after": 86.3,
+    "feed_level_before": 86.3,
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 3,
+    "requested_grams": 3,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425989,
+      "_nanoseconds": 672000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_757",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793260123,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793260130,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "requested_grams": 1,
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": true,
+    "feed_level_after": 86.3,
+    "feed_level_before": 90.7,
+    "estimated_dispensed_grams": 1,
+    "status": "completed",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425724,
+      "_nanoseconds": 374000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_758",
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793260224,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793260232,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_after": 86.4,
+    "estimated_dispensed_grams": 2,
+    "requested_grams": 2,
+    "feed_level_before": 81.6,
+    "amount_basis": "servo_cycle_estimate",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426021,
+      "_nanoseconds": 651000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_759",
+    "status": "blocked",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793260301,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793260300,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_760",
+    "status": "completed",
+    "type": "manual",
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793260339,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793260331,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 2,
+    "feed_level_after": 86.3,
+    "requested_grams": 2,
+    "trigger_source": "physical_button",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_before": 86.3,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425907,
+      "_nanoseconds": 554000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_761",
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 1,
+    "status": "completed",
+    "type": "manual",
+    "level_change_detected": true,
+    "occurrence_at": {
+      "_seconds": 1793260392,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 86.4,
+    "requested_grams": 1,
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_before": 90.9,
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793260399,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425995,
+      "_nanoseconds": 686000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_762",
+    "occurrence_at": {
+      "_seconds": 1793274376,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "feed_level_before": 0,
+    "requested_grams": 1,
+    "logged_at": {
+      "_seconds": 1793274377,
+      "_nanoseconds": 0
+    },
+    "action": "Skipped - Critical feed level",
+    "level_change_detected": false,
+    "type": "auto",
+    "status": "skipped_insufficient",
+    "feed_level_after": 0,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425661,
+      "_nanoseconds": 369000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_763",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793274617,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "feed_level_before": 85.4,
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793274608,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "feed_level_after": 85.4,
+    "estimated_dispensed_grams": 2,
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425709,
+      "_nanoseconds": 448000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_764",
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "feed_level_after": 85.4,
+    "feed_level_before": 81.6,
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793274645,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793274637,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425730,
+      "_nanoseconds": 392000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_765",
+    "status": "completed",
+    "feed_level_after": 85.2,
+    "trigger_source": "physical_button",
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 2,
+    "requested_grams": 2,
+    "logged_at": {
+      "_seconds": 1793274667,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "feed_level_before": 85.4,
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793274658,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425868,
+      "_nanoseconds": 615000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_766",
+    "occurrence_at": {
+      "_seconds": 1793274702,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 4,
+    "status": "completed",
+    "level_change_detected": false,
+    "trigger_source": "physical_button",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793274713,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 81.5,
+    "type": "manual",
+    "feed_level_after": 85.2,
+    "action": "Dispensed feed (Onsite Button)",
+    "requested_grams": 4,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425849,
+      "_nanoseconds": 499000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_767",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 1,
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793349693,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793349694,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_768",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793349728,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793349730,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 2,
+    "status": "blocked"
+  },
+  {
+    "id": "ESP_E08CFE18009C_769",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_after": 86.3,
+    "logged_at": {
+      "_seconds": 1793349938,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "requested_grams": 2,
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "feed_level_before": 86.3,
+    "occurrence_at": {
+      "_seconds": 1793349929,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425781,
+      "_nanoseconds": 552000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_770",
+    "requested_grams": 2,
+    "level_change_detected": false,
+    "trigger_source": "physical_button",
+    "action": "Skipped - Critical feed level",
+    "feed_level_before": 0,
+    "status": "skipped_insufficient",
+    "logged_at": {
+      "_seconds": 1793354873,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793354872,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 0,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425642,
+      "_nanoseconds": 766000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_771",
+    "feed_level_after": 90,
+    "estimated_dispensed_grams": 2,
+    "logged_at": {
+      "_seconds": 1793355048,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793355040,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "status": "completed",
+    "requested_grams": 2,
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_before": 86.4,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425681,
+      "_nanoseconds": 457000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_772",
+    "feed_level_after": 0,
+    "trigger_source": "physical_button",
+    "action": "Dispensed feed (Onsite Button)",
+    "requested_grams": 4,
+    "status": "completed",
+    "feed_level_before": 90,
+    "level_change_detected": true,
+    "logged_at": {
+      "_seconds": 1793355162,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 4,
+    "occurrence_at": {
+      "_seconds": 1793355151,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425803,
+      "_nanoseconds": 506000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_773",
+    "requested_grams": 3,
+    "level_change_detected": false,
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 3,
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "feed_level_before": 88.1,
+    "occurrence_at": {
+      "_seconds": 1793355254,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793355263,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 88.1,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425636,
+      "_nanoseconds": 387000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_774",
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "requested_grams": 2,
+    "estimated_dispensed_grams": 2,
+    "logged_at": {
+      "_seconds": 1793355368,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_after": 87.1,
+    "occurrence_at": {
+      "_seconds": 1793355359,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "feed_level_before": 78.7,
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425722,
+      "_nanoseconds": 650000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_775",
+    "feed_level_before": 86.3,
+    "trigger_source": "physical_button",
+    "action": "Dispensed feed (Onsite Button)",
+    "estimated_dispensed_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793355451,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 86.3,
+    "type": "manual",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "requested_grams": 2,
+    "logged_at": {
+      "_seconds": 1793355459,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425747,
+      "_nanoseconds": 532000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_776",
+    "feed_level_before": 86.1,
+    "logged_at": {
+      "_seconds": 1793355545,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "requested_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793355536,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 2,
+    "trigger_source": "physical_button",
+    "level_change_detected": false,
+    "feed_level_after": 86.3,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425927,
+      "_nanoseconds": 634000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_777",
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 2,
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793355577,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": true,
+    "type": "manual",
+    "feed_level_before": 86.3,
+    "estimated_dispensed_grams": 2,
+    "logged_at": {
+      "_seconds": 1793355586,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "feed_level_after": 77.5,
+    "action": "Dispensed feed (Onsite Button)",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425918,
+      "_nanoseconds": 582000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_778",
+    "trigger_source": "physical_button",
+    "type": "auto",
+    "action": "Skipped - Critical feed level",
+    "requested_grams": 2,
+    "feed_level_after": 0,
+    "feed_level_before": 0,
+    "level_change_detected": false,
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793355652,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793355653,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425899,
+      "_nanoseconds": 595000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_779",
+    "level_change_detected": true,
+    "feed_level_after": 77.7,
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793355672,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 86.4,
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 2,
+    "requested_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793355663,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426082,
+      "_nanoseconds": 745000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_780",
+    "occurrence_at": {
+      "_seconds": 1793355916,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "requested_grams": 1,
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793355918,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_781",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793355926,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793355925,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "status": "blocked"
+  },
+  {
+    "id": "ESP_E08CFE18009C_782",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "physical_button",
+    "feed_level_after": 86.1,
+    "requested_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793356117,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "level_change_detected": true,
+    "status": "completed",
+    "feed_level_before": 93.6,
+    "estimated_dispensed_grams": 2,
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793356126,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425829,
+      "_nanoseconds": 505000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_783",
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793356201,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 90.9,
+    "requested_grams": 2,
+    "feed_level_after": 90.9,
+    "logged_at": {
+      "_seconds": 1793356209,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425812,
+      "_nanoseconds": 565000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_784",
+    "occurrence_at": {
+      "_seconds": 1793356310,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793356311,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "requested_grams": 4,
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "type": "auto"
+  },
+  {
+    "id": "ESP_E08CFE18009C_785",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "level_change_detected": false,
+    "requested_grams": 2,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "feed_level_before": 86.4,
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793356335,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "estimated_dispensed_grams": 2,
+    "feed_level_after": 86.1,
+    "logged_at": {
+      "_seconds": 1793356344,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425727,
+      "_nanoseconds": 399000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_786",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793356437,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "estimated_dispensed_grams": 2,
+    "requested_grams": 2,
+    "feed_level_before": 86.1,
+    "type": "manual",
+    "feed_level_after": 86.1,
+    "action": "Dispensed feed (Onsite Button)",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793356446,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425910,
+      "_nanoseconds": 561000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_787",
+    "requested_grams": 3,
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793356507,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "occurrence_at": {
+      "_seconds": 1793356506,
+      "_nanoseconds": 0
+    },
+    "type": "auto"
+  },
+  {
+    "id": "ESP_E08CFE18009C_788",
+    "feed_level_before": 86.3,
+    "requested_grams": 2,
+    "type": "manual",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793356559,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": false,
+    "occurrence_at": {
+      "_seconds": 1793356550,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 2,
+    "feed_level_after": 90.9,
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426051,
+      "_nanoseconds": 723000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_796",
+    "feed_level_before": 86.1,
+    "estimated_dispensed_grams": 2,
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793357328,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": true,
+    "trigger_source": "physical_button",
+    "feed_level_after": 81.6,
+    "logged_at": {
+      "_seconds": 1793357338,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425865,
+      "_nanoseconds": 580000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_815",
+    "feed_level_before": 0,
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793489293,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793489294,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "status": "skipped_insufficient",
+    "trigger_source": "physical_button",
+    "feed_level_after": 0,
+    "level_change_detected": false,
+    "action": "Skipped - Critical feed level"
+  },
+  {
+    "id": "ESP_E08CFE18009C_816",
+    "feed_level_after": 0,
+    "logged_at": {
+      "_seconds": 1793489304,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "type": "auto",
+    "action": "Skipped - Critical feed level",
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793489302,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "feed_level_before": 0,
+    "requested_grams": 2
+  },
+  {
+    "id": "ESP_E08CFE18009C_817",
+    "action": "Skipped - Critical feed level",
+    "feed_level_before": 0,
+    "trigger_source": "physical_button",
+    "feed_level_after": 0,
+    "type": "auto",
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793489308,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793489307,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_818",
+    "level_change_detected": false,
+    "feed_level_before": 0,
+    "trigger_source": "physical_button",
+    "requested_grams": 3,
+    "logged_at": {
+      "_seconds": 1793489327,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793489325,
+      "_nanoseconds": 0
+    },
+    "action": "Skipped - Critical feed level",
+    "feed_level_after": 0
+  },
+  {
+    "id": "ESP_E08CFE18009C_819",
+    "feed_level_before": 87.1,
+    "level_change_detected": true,
+    "feed_level_after": 82.5,
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "status": "completed",
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "requested_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793586040,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 1,
+    "logged_at": {
+      "_seconds": 1793586047,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_820",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "type": "auto",
+    "status": "blocked",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793587623,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793587622,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_821",
+    "logged_at": {
+      "_seconds": 1793587949,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "level_change_detected": true,
+    "feed_level_after": 82.7,
+    "occurrence_at": {
+      "_seconds": 1793587939,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Onsite Button)",
+    "trigger_source": "physical_button",
+    "estimated_dispensed_grams": 1,
+    "status": "completed",
+    "feed_level_before": 87.1,
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_822",
+    "feed_level_after": 87.3,
+    "logged_at": {
+      "_seconds": 1793588156,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Onsite Button)",
+    "occurrence_at": {
+      "_seconds": 1793588149,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "requested_grams": 1,
+    "status": "completed",
+    "estimated_dispensed_grams": 1,
+    "level_change_detected": false,
+    "feed_level_before": 87.3
+  },
+  {
+    "id": "ESP_E08CFE18009C_823",
+    "requested_grams": 1,
+    "status": "completed",
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793588609,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "feed_level_before": 87.3,
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793588602,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 87.3,
+    "action": "Dispensed feed (Onsite Button)",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 1
+  },
+  {
+    "id": "ESP_E08CFE18009C_824",
+    "logged_at": {
+      "_seconds": 1793603815,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "type": "manual",
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_after": 82.7,
+    "estimated_dispensed_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793603807,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 87.1,
+    "level_change_detected": true,
+    "requested_grams": 1,
+    "action": "Dispensed feed (Onsite Button)"
+  },
+  {
+    "id": "ESP_E08CFE18009C_825",
+    "trigger_source": "physical_button",
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_before": 87.1,
+    "type": "manual",
+    "requested_grams": 1,
+    "logged_at": {
+      "_seconds": 1793606510,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 0,
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793606501,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": true,
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 1
+  },
+  {
+    "id": "ESP_E08CFE18009C_826",
+    "feed_level_before": 82.3,
+    "action": "Dispensed feed (Onsite Button)",
+    "feed_level_after": 82.5,
+    "requested_grams": 1,
+    "type": "manual",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793611759,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": false,
+    "estimated_dispensed_grams": 1,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "logged_at": {
+      "_seconds": 1793611766,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button"
+  },
+  {
+    "id": "ESP_E08CFE18009C_828",
+    "type": "auto",
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793770760,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 1,
+    "status": "blocked",
+    "logged_at": {
+      "_seconds": 1793770761,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_829",
+    "logged_at": {
+      "_seconds": 1793771459,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793771457,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "status": "blocked",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable"
+  },
+  {
+    "id": "ESP_E08CFE18009C_830",
+    "requested_grams": 1,
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793771700,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "logged_at": {
+      "_seconds": 1793771701,
+      "_nanoseconds": 0
+    },
+    "type": "auto"
+  },
+  {
+    "id": "ESP_E08CFE18009C_836",
+    "estimated_dispensed_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793803294,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "action": "Dispensed feed (Onsite Button)",
+    "logged_at": {
+      "_seconds": 1793803303,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_after": 47.7,
+    "level_change_detected": true,
+    "trigger_source": "physical_button",
+    "feed_level_before": 100,
+    "requested_grams": 2,
+    "status": "completed"
+  },
+  {
+    "id": "ESP_E08CFE18009C_837",
+    "feed_level_before": 0,
+    "trigger_source": "physical_button",
+    "occurrence_at": {
+      "_seconds": 1793803324,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "status": "skipped_insufficient",
+    "action": "Skipped - Critical feed level",
+    "feed_level_after": 0,
+    "logged_at": {
+      "_seconds": 1793803325,
+      "_nanoseconds": 0
+    },
+    "type": "auto",
+    "level_change_detected": false
+  },
+  {
+    "id": "ESP_E08CFE18009C_838",
+    "requested_grams": 1,
+    "occurrence_at": {
+      "_seconds": 1793803334,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793803336,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 0,
+    "status": "skipped_insufficient",
+    "trigger_source": "physical_button",
+    "action": "Skipped - Critical feed level",
+    "level_change_detected": false,
+    "feed_level_after": 0,
+    "type": "auto"
+  },
+  {
+    "id": "ESP_E08CFE18009C_839",
+    "trigger_source": "physical_button",
+    "requested_grams": 1,
+    "type": "auto",
+    "level_change_detected": false,
+    "feed_level_after": 0,
+    "feed_level_before": 0,
+    "logged_at": {
+      "_seconds": 1793803594,
+      "_nanoseconds": 0
+    },
+    "action": "Skipped - Critical feed level",
+    "status": "skipped_insufficient",
+    "occurrence_at": {
+      "_seconds": 1793803592,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_840",
+    "status": "blocked",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "occurrence_at": {
+      "_seconds": 1793956274,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793956276,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "trigger_source": "physical_button"
+  },
+  {
+    "id": "ESP_E08CFE18009C_841",
+    "status": "blocked",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "physical_button",
+    "logged_at": {
+      "_seconds": 1793956304,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "type": "auto",
+    "occurrence_at": {
+      "_seconds": 1793956301,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_881",
+    "status": "blocked",
+    "type": "auto",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 1,
+    "logged_at": {
+      "_seconds": 1793963447,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793963445,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button"
+  },
+  {
+    "id": "ESP_E08CFE18009C_882",
+    "feed_level_before": 0,
+    "occurrence_at": {
+      "_seconds": 1793963540,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 1,
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793963541,
+      "_nanoseconds": 0
+    },
+    "status": "skipped_insufficient",
+    "trigger_source": "physical_button",
+    "feed_level_after": 0,
+    "type": "auto",
+    "action": "Skipped - Critical feed level"
+  },
+  {
+    "id": "ESP_E08CFE18009C_883",
+    "action": "Skipped - Critical feed level",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794148194,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794148194,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "skipped_insufficient",
+    "requested_grams": 1,
+    "feed_level_before": 0,
+    "feed_level_after": 0,
+    "level_change_detected": false
+  },
+  {
+    "id": "ESP_E08CFE18009C_884",
+    "action": "Skipped - Critical feed level",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794148214,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794148211,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "skipped_insufficient",
+    "requested_grams": 12,
+    "feed_level_before": 0,
+    "feed_level_after": 0,
+    "level_change_detected": false
+  },
+  {
+    "id": "ESP_E08CFE18009C_885",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794193424,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794193417,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 86.6
+  },
+  {
+    "id": "ESP_E08CFE18009C_886",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794198721,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794198714,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 47.7,
+    "feed_level_after": 51.4,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_887",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794271332,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794271325,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 41.2,
+    "feed_level_after": 41.2,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_888",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794272957,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794272950,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 41.3,
+    "feed_level_after": 41.3,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_889",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794389758,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794389751,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 41,
+    "feed_level_after": 41.2,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794389762,
+      "_nanoseconds": 776000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_890",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794520817,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794520800,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 10,
+    "estimated_dispensed_grams": 10,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 40.1,
+    "feed_level_after": 40.3,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794520822,
+      "_nanoseconds": 276000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_891",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566421,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794566400,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "18:40",
+    "schedule_time": "6:40 PM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 10,
+    "estimated_dispensed_grams": 10,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 45.8,
+    "feed_level_after": 45.1,
+    "level_change_detected": true,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794566427,
+      "_nanoseconds": 350000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_892",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794616821,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794616800,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "08:40",
+    "schedule_time": "8:40 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 10,
+    "estimated_dispensed_grams": 10,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 41.2,
+    "feed_level_after": 45.8,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794616826,
+      "_nanoseconds": 940000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_896",
+    "action": "Skipped - Critical feed level",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794638419,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794638418,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "skipped_insufficient",
+    "requested_grams": 1,
+    "feed_level_before": 0,
+    "feed_level_after": 0,
+    "level_change_detected": false,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794638420,
+      "_nanoseconds": 80000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_897",
+    "action": "Skipped - Critical feed level",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794638638,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794638637,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "skipped_insufficient",
+    "requested_grams": 1,
+    "feed_level_before": 0,
+    "feed_level_after": 0,
+    "level_change_detected": false,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794638640,
+      "_nanoseconds": 267000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_898",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794639342,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794639335,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 40.3,
+    "feed_level_after": 35.5,
+    "level_change_detected": true,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794639344,
+      "_nanoseconds": 280000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_900",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794754677,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794754669,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 46.6,
+    "feed_level_after": 46.6,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794754681,
+      "_nanoseconds": 124000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_901",
+    "action": "Skipped - Critical feed level",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794754710,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794754709,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "skipped_insufficient",
+    "requested_grams": 1,
+    "feed_level_before": 0,
+    "feed_level_after": 0,
+    "level_change_detected": false,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794754712,
+      "_nanoseconds": 564000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_902",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794823215,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794823200,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "18:00",
+    "schedule_time": "6:00 PM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 3,
+    "estimated_dispensed_grams": 3,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 43.9,
+    "feed_level_after": 43.9,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794823219,
+      "_nanoseconds": 790000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_903",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794909610,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794909600,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "18:00",
+    "schedule_time": "6:00 PM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 3,
+    "estimated_dispensed_grams": 3,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 43.9,
+    "feed_level_after": 39.4,
+    "level_change_detected": true,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794909614,
+      "_nanoseconds": 771000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_904",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1794910467,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794910460,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 1,
+    "estimated_dispensed_grams": 1,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 39.3,
+    "feed_level_after": 39.4,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794910469,
+      "_nanoseconds": 855000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_905",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794952829,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794952800,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 13,
+    "estimated_dispensed_grams": 13,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 39.1,
+    "feed_level_after": 39.1,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794952833,
+      "_nanoseconds": 399000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_906",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794996023,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794996000,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "18:00",
+    "schedule_time": "6:00 PM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 13,
+    "estimated_dispensed_grams": 13,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 43.9,
+    "feed_level_after": 39.3,
+    "level_change_detected": true,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794996029,
+      "_nanoseconds": 501000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_907",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795039224,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795039200,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 13,
+    "estimated_dispensed_grams": 13,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 42,
+    "feed_level_after": 42,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_908",
+    "action": "Dispensed feed (Onsite Button)",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1795051166,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795051158,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "physical_button",
+    "status": "completed",
+    "requested_grams": 2,
+    "estimated_dispensed_grams": 2,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 43.2,
+    "feed_level_after": 43,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_910",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795125632,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795125600,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 13,
+    "estimated_dispensed_grams": 13,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 44.1,
+    "feed_level_after": 43.9,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1795125636,
+      "_nanoseconds": 417000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_911",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795212025,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795212000,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 13,
+    "estimated_dispensed_grams": 13,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 43.9,
+    "feed_level_after": 44.1,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1795212029,
+      "_nanoseconds": 237000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_912",
+    "action": "Dispensed feed (Scheduled)",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795298443,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795298400,
+      "_nanoseconds": 0
+    },
+    "schedule_key": "06:00",
+    "schedule_time": "6:00 AM",
+    "trigger_source": "schedule",
+    "status": "completed",
+    "requested_grams": 28,
+    "estimated_dispensed_grams": 28,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 31.5,
+    "feed_level_after": 31.7,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_09gocFJX6UGs7MKSiLNO",
+    "requested_grams": 5,
+    "type": "manual",
+    "status": "blocked",
+    "logged_at": {
+      "_seconds": 1793958966,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "occurrence_at": {
+      "_seconds": 1793958965,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "command_id": "09gocFJX6UGs7MKSiLNO"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_18LuCaQc2rfKbcMHip6V",
+    "occurrence_at": {
+      "_seconds": 1793959330,
+      "_nanoseconds": 0
+    },
+    "command_id": "18LuCaQc2rfKbcMHip6V",
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793959331,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5,
+    "type": "manual",
+    "status": "blocked",
+    "action": "Feed blocked: feed-level sensor unavailable"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_1phoZ4MP6tvL0QH89urR",
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793962126,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 86.3,
+    "amount_basis": "servo_cycle_estimate",
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793962114,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "feed_level_before": 86.1,
+    "command_id": "1phoZ4MP6tvL0QH89urR",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "estimated_dispensed_grams": 5,
+    "level_change_detected": false,
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_25TSCTOh0Ksg9o2rcb5u",
+    "command_id": "25TSCTOh0Ksg9o2rcb5u",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1793009181,
+      "_nanoseconds": 0
+    },
+    "status": "failed",
+    "requested_grams": 5,
+    "trigger_source": "manual_request",
+    "action": "Feed interrupted - execution could not be confirmed"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_3GBw8esmnY3vjfdeHsex",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793959308,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793959307,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5,
+    "status": "blocked",
+    "trigger_source": "manual_request",
+    "type": "manual",
+    "command_id": "3GBw8esmnY3vjfdeHsex"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_56Umn65uTOXUSB0E1GsO",
+    "occurrence_at": {
+      "_seconds": 1793958899,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793958900,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "manual_request",
+    "requested_grams": 5,
+    "command_id": "56Umn65uTOXUSB0E1GsO",
+    "status": "blocked",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_7RVnF2YccyJGsB2YnXcN",
+    "occurrence_at": {
+      "_seconds": 1793011594,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Manual)",
+    "level_change_detected": true,
+    "type": "manual",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "manual_request",
+    "feed_level_after": 17.7,
+    "status": "completed",
+    "feed_level_before": 84.4,
+    "logged_at": {
+      "_seconds": 1793011603,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 2,
+    "estimated_dispensed_grams": 2,
+    "command_id": "7RVnF2YccyJGsB2YnXcN",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426001,
+      "_nanoseconds": 699000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_850jPtXeqMAOafwc4FtH",
+    "status": "completed",
+    "feed_level_before": 91.1,
+    "action": "Dispensed feed (Manual)",
+    "estimated_dispensed_grams": 5,
+    "trigger_source": "manual_request",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793770668,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": false,
+    "logged_at": {
+      "_seconds": 1793770680,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5,
+    "feed_level_after": 90.9,
+    "command_id": "850jPtXeqMAOafwc4FtH",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_CJbgIcKnzxAHbJIypc0K",
+    "feed_level_after": 12.2,
+    "status": "completed",
+    "type": "manual",
+    "level_change_detected": true,
+    "logged_at": {
+      "_seconds": 1793011719,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 28.8,
+    "estimated_dispensed_grams": 3,
+    "requested_grams": 3,
+    "command_id": "CJbgIcKnzxAHbJIypc0K",
+    "action": "Dispensed feed (Manual)",
+    "trigger_source": "manual_request",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793011700,
+      "_nanoseconds": 0
+    },
+    "push_attempt_claimed_at": {
+      "_seconds": 1793425929,
+      "_nanoseconds": 476000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_DACk8YU1kDuT9yb9C925",
+    "estimated_dispensed_grams": 5,
+    "command_id": "DACk8YU1kDuT9yb9C925",
+    "requested_grams": 5,
+    "trigger_source": "manual_request",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "feed_level_before": 90,
+    "feed_level_after": 90,
+    "action": "Dispensed feed (Manual)",
+    "level_change_detected": false,
+    "status": "completed",
+    "logged_at": {
+      "_seconds": 1793961895,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793961883,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_GPw7AoNEinbBZHbVOyaI",
+    "command_id": "GPw7AoNEinbBZHbVOyaI",
+    "level_change_detected": false,
+    "feed_level_after": 90,
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793961639,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "requested_grams": 5,
+    "feed_level_before": 90,
+    "logged_at": {
+      "_seconds": 1793961651,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Manual)",
+    "estimated_dispensed_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_Gam7VsR4NETDat7BJEvq",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "manual_request",
+    "requested_grams": 5,
+    "logged_at": {
+      "_seconds": 1793962240,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793962229,
+      "_nanoseconds": 0
+    },
+    "level_change_detected": true,
+    "action": "Dispensed feed (Manual)",
+    "command_id": "Gam7VsR4NETDat7BJEvq",
+    "feed_level_after": 86.3,
+    "estimated_dispensed_grams": 5,
+    "feed_level_before": 90.2,
+    "status": "completed"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_KHnaoEJ71WfBjvfI7M9t",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793961802,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1793961803,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "command_id": "KHnaoEJ71WfBjvfI7M9t",
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_KcTLjqLHnt9ZR4KAcFof",
+    "estimated_dispensed_grams": 5,
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Manual)",
+    "occurrence_at": {
+      "_seconds": 1793959618,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "requested_grams": 5,
+    "logged_at": {
+      "_seconds": 1793959632,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 22.3,
+    "command_id": "KcTLjqLHnt9ZR4KAcFof",
+    "status": "completed",
+    "trigger_source": "manual_request"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_L5Pv6hu7Mj5Yx7zASUYV",
+    "type": "manual",
+    "estimated_dispensed_grams": 5,
+    "action": "Dispensed feed (Manual)",
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793959811,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "feed_level_after": 40.1,
+    "occurrence_at": {
+      "_seconds": 1793959799,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "feed_level_before": 40.1,
+    "command_id": "L5Pv6hu7Mj5Yx7zASUYV",
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_LjgvKrRHsy3Nt0dX3XMn",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793785119,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 3,
+    "feed_level_after": 40.1,
+    "type": "manual",
+    "level_change_detected": false,
+    "command_id": "LjgvKrRHsy3Nt0dX3XMn",
+    "status": "completed",
+    "action": "Dispensed feed (Manual)",
+    "requested_grams": 3,
+    "logged_at": {
+      "_seconds": 1793785129,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 40.1,
+    "amount_basis": "servo_cycle_estimate",
+    "push_attempt_claimed_at": {
+      "_seconds": 1793785132,
+      "_nanoseconds": 455000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_M414D8YMkg3mNiKKXacG",
+    "feed_level_after": 39.3,
+    "trigger_source": "manual_request",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "action": "Dispensed feed (Manual)",
+    "command_id": "M414D8YMkg3mNiKKXacG",
+    "estimated_dispensed_grams": 5,
+    "level_change_detected": false,
+    "status": "completed",
+    "feed_level_before": 26.2,
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793960295,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793960307,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5,
+    "amount_basis": "servo_cycle_estimate"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_NTcp22kp12ZBAQZ4ZsVy",
+    "type": "manual",
+    "requested_grams": 3,
+    "occurrence_at": {
+      "_seconds": 1793958688,
+      "_nanoseconds": 0
+    },
+    "command_id": "NTcp22kp12ZBAQZ4ZsVy",
+    "logged_at": {
+      "_seconds": 1793958690,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "trigger_source": "manual_request",
+    "action": "Feed blocked: feed-level sensor unavailable"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_NfI3Sjl89oBv6qqtLIMa",
+    "action": "Dispensed feed (Manual)",
+    "estimated_dispensed_grams": 2,
+    "status": "completed",
+    "occurrence_at": {
+      "_seconds": 1793783191,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793783200,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "requested_grams": 2,
+    "feed_level_after": 58.1,
+    "command_id": "NfI3Sjl89oBv6qqtLIMa",
+    "feed_level_before": 58.1,
+    "trigger_source": "manual_request",
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_OWfNWjdcR1ohU1n8eEj2",
+    "status": "blocked",
+    "requested_grams": 3,
+    "command_id": "OWfNWjdcR1ohU1n8eEj2",
+    "type": "manual",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793960556,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793960558,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_Oz1XvVvNND6TFfIkibgU",
+    "occurrence_at": {
+      "_seconds": 1793961789,
+      "_nanoseconds": 0
+    },
+    "command_id": "Oz1XvVvNND6TFfIkibgU",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1793961790,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "manual_request",
+    "status": "blocked",
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_RHb86aHRemM98g8aWqnT",
+    "occurrence_at": {
+      "_seconds": 1793961493,
+      "_nanoseconds": 0
+    },
+    "command_id": "RHb86aHRemM98g8aWqnT",
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793961495,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 5,
+    "status": "blocked",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_T9WDqJiQFueXjQhJAojD",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "command_id": "T9WDqJiQFueXjQhJAojD",
+    "logged_at": {
+      "_seconds": 1794638248,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794638236,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 31.9,
+    "feed_level_after": 31.7,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794638253,
+      "_nanoseconds": 975000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_Ty9sBOI0xFbsPxIANdbN",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "command_id": "Ty9sBOI0xFbsPxIANdbN",
+    "logged_at": {
+      "_seconds": 1795079572,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1795079562,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "requested_grams": 3,
+    "estimated_dispensed_grams": 3,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 44.9,
+    "feed_level_after": 48.9,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_UfAa9ems670Jp22auzgp",
+    "requested_grams": 5,
+    "occurrence_at": {
+      "_seconds": 1793959319,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793959320,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "trigger_source": "manual_request",
+    "command_id": "UfAa9ems670Jp22auzgp"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_UyczX3ADT59Fu4QcRXYN",
+    "action": "Dispensed feed (Manual)",
+    "requested_grams": 3,
+    "status": "completed",
+    "trigger_source": "manual_request",
+    "command_id": "UyczX3ADT59Fu4QcRXYN",
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual",
+    "feed_level_before": 30,
+    "estimated_dispensed_grams": 3,
+    "logged_at": {
+      "_seconds": 1793960592,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793960580,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_XPz8OEhofZdGYMXi7SwE",
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_after": 13.9,
+    "requested_grams": 2,
+    "level_change_detected": true,
+    "status": "completed",
+    "estimated_dispensed_grams": 2,
+    "trigger_source": "manual_request",
+    "action": "Dispensed feed (Manual)",
+    "occurrence_at": {
+      "_seconds": 1793011653,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793011661,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "command_id": "XPz8OEhofZdGYMXi7SwE",
+    "feed_level_before": 97.6,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793426130,
+      "_nanoseconds": 775000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_XeUHP77vhaIE5nzd0wut",
+    "occurrence_at": {
+      "_seconds": 1793960546,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793960546,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "type": "manual",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 3,
+    "command_id": "XeUHP77vhaIE5nzd0wut"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_XogEcjX2UD0YoZOszkIl",
+    "level_change_detected": false,
+    "requested_grams": 3,
+    "logged_at": {
+      "_seconds": 1793009511,
+      "_nanoseconds": 0
+    },
+    "action": "Feed Now request expired before dispensing",
+    "feed_level_before": 64.6,
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793009502,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "status": "blocked",
+    "feed_level_after": 64.6,
+    "command_id": "XogEcjX2UD0YoZOszkIl"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_aMSUYa2ZGMN7javuBVgL",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "command_id": "aMSUYa2ZGMN7javuBVgL",
+    "logged_at": {
+      "_seconds": 1794638326,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794638315,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 31.7,
+    "feed_level_after": 31.9,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794638328,
+      "_nanoseconds": 617000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_e51j66uoSgPxRarEqqVH",
+    "logged_at": {
+      "_seconds": 1793961521,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793961520,
+      "_nanoseconds": 0
+    },
+    "command_id": "e51j66uoSgPxRarEqqVH",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "status": "blocked",
+    "requested_grams": 5,
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_eH3sCuxzZeNLVTi4R5wu",
+    "level_change_detected": false,
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793783246,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793783255,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "command_id": "eH3sCuxzZeNLVTi4R5wu",
+    "feed_level_after": 58.1,
+    "status": "completed",
+    "requested_grams": 2,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "type": "manual",
+    "action": "Dispensed feed (Manual)",
+    "estimated_dispensed_grams": 2,
+    "feed_level_before": 58
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_fgScav2YgXIUXQBMHrdu",
+    "status": "completed",
+    "command_id": "fgScav2YgXIUXQBMHrdu",
+    "feed_level_after": 0,
+    "feed_level_before": 43.2,
+    "trigger_source": "manual_request",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "level_change_detected": true,
+    "occurrence_at": {
+      "_seconds": 1793960941,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5,
+    "logged_at": {
+      "_seconds": 1793960954,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_gAnEOXSjuCXALX59hEeU",
+    "level_change_detected": false,
+    "action": "Dispensed feed (Manual)",
+    "feed_level_after": 57.1,
+    "type": "manual",
+    "feed_level_before": 57.1,
+    "occurrence_at": {
+      "_seconds": 1793961547,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "logged_at": {
+      "_seconds": 1793961559,
+      "_nanoseconds": 0
+    },
+    "command_id": "gAnEOXSjuCXALX59hEeU",
+    "status": "completed",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "trigger_source": "manual_request",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_hhYRlhSvSs2jxHzCuiTn",
+    "occurrence_at": {
+      "_seconds": 1793960779,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "estimated_dispensed_grams": 5,
+    "level_change_detected": true,
+    "status": "completed",
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 25.2,
+    "trigger_source": "manual_request",
+    "action": "Dispensed feed (Manual)",
+    "requested_grams": 5,
+    "feed_level_after": 24.2,
+    "command_id": "hhYRlhSvSs2jxHzCuiTn",
+    "logged_at": {
+      "_seconds": 1793960790,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_iS9dlIzs3fYYaJLjAmvt",
+    "type": "manual",
+    "action": "Dispensed feed (Manual)",
+    "estimated_dispensed_grams": 5,
+    "status": "completed",
+    "trigger_source": "manual_request",
+    "feed_level_before": 41.2,
+    "command_id": "iS9dlIzs3fYYaJLjAmvt",
+    "requested_grams": 5,
+    "occurrence_at": {
+      "_seconds": 1793783445,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793783457,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_iThTfkXTOTBkhLprgho1",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "command_id": "iThTfkXTOTBkhLprgho1",
+    "logged_at": {
+      "_seconds": 1794638371,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794638359,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 31.7,
+    "feed_level_after": 27.1,
+    "level_change_detected": true,
+    "push_attempt_claimed_at": {
+      "_seconds": 1794638373,
+      "_nanoseconds": 382000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_jcoi7ZUOyVAIIe9wQBv9",
+    "command_id": "jcoi7ZUOyVAIIe9wQBv9",
+    "type": "manual",
+    "requested_grams": 3,
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793960436,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793960437,
+      "_nanoseconds": 0
+    },
+    "status": "blocked",
+    "action": "Feed blocked: feed-level sensor unavailable"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_jg6WLIJL8wT9e1AXbrog",
+    "command_id": "jg6WLIJL8wT9e1AXbrog",
+    "feed_level_before": 30.9,
+    "action": "Dispensed feed (Manual)",
+    "feed_level_after": 26.9,
+    "logged_at": {
+      "_seconds": 1793961151,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "estimated_dispensed_grams": 5,
+    "occurrence_at": {
+      "_seconds": 1793961138,
+      "_nanoseconds": 0
+    },
+    "amount_basis": "servo_cycle_estimate",
+    "level_change_detected": true,
+    "type": "manual",
+    "requested_grams": 5,
+    "trigger_source": "manual_request"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_kcnPOLkyU0y9Wtdab5N1",
+    "requested_grams": 5,
+    "command_id": "kcnPOLkyU0y9Wtdab5N1",
+    "type": "manual",
+    "status": "blocked",
+    "occurrence_at": {
+      "_seconds": 1793960355,
+      "_nanoseconds": 0
+    },
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793960357,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_ljptSwKiAJnB8zogGfd7",
+    "feed_level_after": 90,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "action": "Dispensed feed (Manual)",
+    "occurrence_at": {
+      "_seconds": 1793961738,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "requested_grams": 5,
+    "command_id": "ljptSwKiAJnB8zogGfd7",
+    "trigger_source": "manual_request",
+    "feed_level_before": 90,
+    "logged_at": {
+      "_seconds": 1793961750,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "estimated_dispensed_grams": 5,
+    "level_change_detected": false,
+    "amount_basis": "servo_cycle_estimate"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_odXN1ttXPJufZySXsMh8",
+    "feed_level_after": 64.6,
+    "action": "Dispensed feed (Manual)",
+    "logged_at": {
+      "_seconds": 1793958722,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "requested_grams": 3,
+    "status": "completed",
+    "level_change_detected": true,
+    "estimated_dispensed_grams": 3,
+    "command_id": "odXN1ttXPJufZySXsMh8",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793958711,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "feed_level_before": 69.3
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_q0sEzDiVr9WpvSdU9O2q",
+    "trigger_source": "manual_request",
+    "requested_grams": 3,
+    "amount_basis": "servo_cycle_estimate",
+    "estimated_dispensed_grams": 3,
+    "status": "completed",
+    "type": "manual",
+    "action": "Dispensed feed (Manual)",
+    "feed_level_after": 64.6,
+    "logged_at": {
+      "_seconds": 1793958762,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1793958752,
+      "_nanoseconds": 0
+    },
+    "feed_level_before": 64.6,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false,
+    "command_id": "q0sEzDiVr9WpvSdU9O2q"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_qik6vFMV1DqT5Quav9dq",
+    "action": "Dispensed feed (Manual)",
+    "type": "manual",
+    "command_id": "qik6vFMV1DqT5Quav9dq",
+    "logged_at": {
+      "_seconds": 1794639444,
+      "_nanoseconds": 0
+    },
+    "occurrence_at": {
+      "_seconds": 1794639424,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "manual_request",
+    "status": "completed",
+    "requested_grams": 5,
+    "estimated_dispensed_grams": 5,
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_before": 46.8,
+    "feed_level_after": 54.4,
+    "level_change_detected": false,
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "push_attempt_claimed_at": {
+      "_seconds": 1794639445,
+      "_nanoseconds": 880000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_rJQApMKZuGslVOA8tDGJ",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793958912,
+      "_nanoseconds": 0
+    },
+    "logged_at": {
+      "_seconds": 1793958913,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "status": "blocked",
+    "command_id": "rJQApMKZuGslVOA8tDGJ",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_rLLQWfwrZrfuHce6MHFh",
+    "occurrence_at": {
+      "_seconds": 1793958662,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 3,
+    "status": "blocked",
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793958664,
+      "_nanoseconds": 0
+    },
+    "command_id": "rLLQWfwrZrfuHce6MHFh",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_rScbGOJilPqDAqDmxvzz",
+    "status": "completed",
+    "command_id": "rScbGOJilPqDAqDmxvzz",
+    "requested_grams": 3,
+    "logged_at": {
+      "_seconds": 1793960655,
+      "_nanoseconds": 0
+    },
+    "action": "Dispensed feed (Manual)",
+    "feed_level_after": 26.2,
+    "level_change_detected": false,
+    "feed_level_before": 5.7,
+    "estimated_dispensed_grams": 3,
+    "type": "manual",
+    "occurrence_at": {
+      "_seconds": 1793960645,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "manual_request"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_rfRIGgRBfnB8nmz5wvbJ",
+    "command_id": "rfRIGgRBfnB8nmz5wvbJ",
+    "logged_at": {
+      "_seconds": 1793958997,
+      "_nanoseconds": 0
+    },
+    "feed_level_after": 82,
+    "amount_basis": "servo_cycle_estimate",
+    "requested_grams": 5,
+    "trigger_source": "manual_request",
+    "level_change_detected": true,
+    "feed_level_before": 87.1,
+    "estimated_dispensed_grams": 5,
+    "status": "completed",
+    "type": "manual",
+    "action": "Dispensed feed (Manual)",
+    "occurrence_at": {
+      "_seconds": 1793958985,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_sQFrL0MhgnPqRsfhqxKk",
+    "status": "completed",
+    "feed_level_before": 23.3,
+    "requested_grams": 2,
+    "occurrence_at": {
+      "_seconds": 1793011886,
+      "_nanoseconds": 0
+    },
+    "command_id": "sQFrL0MhgnPqRsfhqxKk",
+    "level_change_detected": true,
+    "trigger_source": "manual_request",
+    "logged_at": {
+      "_seconds": 1793011894,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "estimated_dispensed_grams": 2,
+    "action": "Dispensed feed (Manual)",
+    "amount_basis": "servo_cycle_estimate",
+    "feed_level_after": 20.4,
+    "push_attempt_claimed_at": {
+      "_seconds": 1793018362,
+      "_nanoseconds": 203000000
+    }
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_vGywvGqafu4JRN4wS5tV",
+    "command_id": "vGywvGqafu4JRN4wS5tV",
+    "status": "blocked",
+    "trigger_source": "manual_request",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "logged_at": {
+      "_seconds": 1793961046,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5,
+    "occurrence_at": {
+      "_seconds": 1793961044,
+      "_nanoseconds": 0
+    },
+    "type": "manual"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_vvQsDO0x1kbkaBSqSqzz",
+    "occurrence_at": {
+      "_seconds": 1793960696,
+      "_nanoseconds": 0
+    },
+    "command_id": "vvQsDO0x1kbkaBSqSqzz",
+    "requested_grams": 5,
+    "status": "completed",
+    "logged_at": {
+      "_seconds": 1793960708,
+      "_nanoseconds": 0
+    },
+    "type": "manual",
+    "trigger_source": "manual_request",
+    "feed_level_before": 50.8,
+    "estimated_dispensed_grams": 5,
+    "action": "Dispensed feed (Manual)",
+    "amount_basis": "servo_cycle_estimate"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_yfr1YQO6fSmZVjnMEmmV",
+    "status": "blocked",
+    "action": "Feed blocked: feed-level sensor unavailable",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793962105,
+      "_nanoseconds": 0
+    },
+    "command_id": "yfr1YQO6fSmZVjnMEmmV",
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1793962106,
+      "_nanoseconds": 0
+    },
+    "requested_grams": 5
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_zSYst36RTXjn4x9bdkfo",
+    "amount_basis": "servo_cycle_estimate",
+    "action": "Dispensed feed (Manual)",
+    "feed_level_before": 90.2,
+    "command_id": "zSYst36RTXjn4x9bdkfo",
+    "occurrence_at": {
+      "_seconds": 1793961811,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "logged_at": {
+      "_seconds": 1793961822,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 5,
+    "type": "manual",
+    "feed_level_after": 90,
+    "requested_grams": 5,
+    "trigger_source": "manual_request",
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "level_change_detected": false
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_zUimfsiaxPb8B0lJG9Df",
+    "amount_basis": "servo_cycle_estimate",
+    "occurrence_at": {
+      "_seconds": 1793960366,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 5,
+    "logged_at": {
+      "_seconds": 1793960379,
+      "_nanoseconds": 0
+    },
+    "command_id": "zUimfsiaxPb8B0lJG9Df",
+    "feed_level_before": 47.8,
+    "action": "Dispensed feed (Manual)",
+    "requested_grams": 5,
+    "level_change_detected": true,
+    "feed_level_after": 43,
+    "trigger_source": "manual_request",
+    "type": "manual",
+    "status": "completed"
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_zY3Md3idQGXwEpIy0m6c",
+    "amount_basis": "servo_cycle_estimate",
+    "trigger_source": "manual_request",
+    "occurrence_at": {
+      "_seconds": 1793783309,
+      "_nanoseconds": 0
+    },
+    "estimated_dispensed_grams": 32,
+    "feed_level_before": 58.1,
+    "level_change_detected": false,
+    "type": "manual",
+    "logged_at": {
+      "_seconds": 1793783356,
+      "_nanoseconds": 0
+    },
+    "verification_note": "Possible dispense failure: no detectable feed-level change",
+    "requested_grams": 32,
+    "action": "Dispensed feed (Manual)",
+    "status": "completed",
+    "command_id": "zY3Md3idQGXwEpIy0m6c",
+    "feed_level_after": 58
+  },
+  {
+    "id": "ESP_E08CFE18009C_cmd_zeIICHAxxDOQo03Rawbb",
+    "action": "Dispensed feed (Manual)",
+    "logged_at": {
+      "_seconds": 1793959366,
+      "_nanoseconds": 0
+    },
+    "command_id": "zeIICHAxxDOQo03Rawbb",
+    "occurrence_at": {
+      "_seconds": 1793959353,
+      "_nanoseconds": 0
+    },
+    "status": "completed",
+    "feed_level_before": 68.4,
+    "amount_basis": "servo_cycle_estimate",
+    "type": "manual",
+    "requested_grams": 5,
+    "trigger_source": "manual_request",
+    "estimated_dispensed_grams": 5
+  },
+  {
+    "id": "H40kCdhYuk6JflBgr2lE",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795079604,
+      "_nanoseconds": 215000000
+    }
+  },
+  {
+    "id": "I4ISOqPs2v8aH9hAUqel",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566793,
+      "_nanoseconds": 886000000
+    }
+  },
+  {
+    "id": "JYWIury1g7plF53pu1RA",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566801,
+      "_nanoseconds": 275000000
+    }
+  },
+  {
+    "id": "JjExbZMEspAKsZKwSOct",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794639839,
+      "_nanoseconds": 126000000
+    }
+  },
+  {
+    "id": "KZ1zuHMCwMuAv8P6bxVW",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566813,
+      "_nanoseconds": 926000000
+    }
+  },
+  {
+    "id": "KaB6ajAbBeXX4D0iWtRE",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795082367,
+      "_nanoseconds": 143000000
+    }
+  },
+  {
+    "id": "Krb94nZdVf1CjtOSFayS",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795079599,
+      "_nanoseconds": 163000000
+    }
+  },
+  {
+    "id": "MGxi3dFfgCzBpkCCQ8Qg",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795164196,
+      "_nanoseconds": 576000000
+    }
+  },
+  {
+    "id": "OBKDuC825QQyFOOrADCa",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795079603,
+      "_nanoseconds": 333000000
+    }
+  },
+  {
+    "id": "QNabNSEVXjnee40ClXLp",
+    "action": "Edited feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794995836,
+      "_nanoseconds": 749000000
+    }
+  },
+  {
+    "id": "STmLP0xc9NOod0PsScP6",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566389,
+      "_nanoseconds": 989000000
+    }
+  },
+  {
+    "id": "Txb6LHFADthNqwvRx9Jr",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795079611,
+      "_nanoseconds": 972000000
+    }
+  },
+  {
+    "id": "U1ceBLeVIabd5yGDAy4Y",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794637843,
+      "_nanoseconds": 119000000
+    }
+  },
+  {
+    "id": "VmAbfz6TwQiFGcnP1xho",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794616933,
+      "_nanoseconds": 216000000
+    }
+  },
+  {
+    "id": "WjUj0zd1gBuTcgkDk8Qh",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794637847,
+      "_nanoseconds": 913000000
+    }
+  },
+  {
+    "id": "WsHuyh6GH6P7pXEL5BBq",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794616611,
+      "_nanoseconds": 142000000
+    }
+  },
+  {
+    "id": "X3IqyHe2sXrBUEBnAA9S",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566802,
+      "_nanoseconds": 783000000
+    }
+  },
+  {
+    "id": "YobJiRAEXSHv9tBsgxUC",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566815,
+      "_nanoseconds": 861000000
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_1",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_1",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791496804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791496800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_10",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_10",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791885603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791885600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_11",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_11",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791928804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791928800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_12",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_12",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791972003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791972000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_13",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_13",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792015204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792015200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_14",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_14",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792058403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792058400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_15",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_15",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792101604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792101600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_16",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_16",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792144803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792144800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_17",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_17",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792188004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792188000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_18",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_18",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792231203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792231200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_19",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 7,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_19",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792274404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792274400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_2",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_2",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791540003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791540000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_20",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 7,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_20",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792317603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792317600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_21",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_21",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792360804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792360800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_22",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_22",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792404003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792404000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_23",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_23",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792447204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792447200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_24",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_24",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792490403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792490400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_25",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_25",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792533604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792533600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_26",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_26",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792576803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792576800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_27",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_27",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792620004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792620000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_28",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 8,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_28",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792663203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792663200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_29",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_29",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792706404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792706400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_3",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_3",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791583204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791583200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_30",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_30",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792749603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792749600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_31",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 9,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_31",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792792804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792792800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_32",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 9,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_32",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792836003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792836000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_33",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_33",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792879204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792879200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_34",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_34",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792922403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792922400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_35",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_35",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1792965604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1792965600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_36",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_36",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793008803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793008800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_37",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_37",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793052004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793052000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_38",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_38",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793095203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793095200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_39",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 9,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_39",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793138404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793138400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_4",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 6,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_4",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791626403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791626400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_40",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 9,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_40",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793181603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793181600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_41",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_41",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793224804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793224800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_42",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_42",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793268003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793268000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_43",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_43",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793311204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793311200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_44",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_44",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793354403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793354400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_45",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_45",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793397604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793397600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_46",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_46",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793440803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793440800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_47",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_47",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793484004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793484000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_48",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_48",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793527203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793527200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_49",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_49",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793570404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793570400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_5",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_5",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791669604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791669600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_50",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_50",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793613603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793613600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_51",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_51",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793656804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793656800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_52",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_52",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793700003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793700000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_53",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_53",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793743204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793743200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_54",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_54",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793786403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793786400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_55",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_55",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793829604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793829600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_56",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 11,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_56",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793872803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793872800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_57",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_57",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793916004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793916000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_58",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_58",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1793959203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1793959200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_59",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_59",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794002404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794002400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_6",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_6",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791712803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791712800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_60",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_60",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794045603,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794045600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_61",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_61",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794088804,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794088800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_62",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_62",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794132003,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794132000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_63",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_63",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794175204,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794175200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_64",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 10,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_64",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794218403,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794218400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_65",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_65",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794261604,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794261600,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_66",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 13,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_66",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1794304803,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1794304800,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_7",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_7",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791756004,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791756000,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_8",
+    "schedule_key": "evening_feed_6pm",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_8",
+    "status": "completed",
+    "schedule_time": "06:00 PM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791799203,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791799200,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "backup_ESP_E08CFE18009C_9",
+    "schedule_key": "morning_feed_6am",
+    "requested_grams": 5,
+    "type": "auto",
+    "command_id": "ESP_E08CFE18009C_9",
+    "status": "completed",
+    "schedule_time": "06:00 AM",
+    "action": "Feeding Dispense",
+    "logged_at": {
+      "_seconds": 1791842404,
+      "_nanoseconds": 0
+    },
+    "trigger_source": "schedule",
+    "occurrence_at": {
+      "_seconds": 1791842400,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "c1nRhIivkI4occP1lyv5",
+    "action": "Edited feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795279995,
+      "_nanoseconds": 379000000
+    }
+  },
+  {
+    "id": "cZA3Aum7MIcLlvhmTls3",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566807,
+      "_nanoseconds": 136000000
+    }
+  },
+  {
+    "id": "dYxFjNASJYvVgu6UOgS4",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794639795,
+      "_nanoseconds": 899000000
+    }
+  },
+  {
+    "id": "de9ilWBlCk29O0ZGsL5r",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794920007,
+      "_nanoseconds": 814000000
+    }
+  },
+  {
+    "id": "glnKyZup4KhrkFJyruh9",
+    "action": "Edited feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795079607,
+      "_nanoseconds": 882000000
+    }
+  },
+  {
+    "id": "gvQQRCpHi6eBB1evBfpF",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795279995,
+      "_nanoseconds": 953000000
+    }
+  },
+  {
+    "id": "hUgrLVkvK8lISthL9tys",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795082369,
+      "_nanoseconds": 960000000
+    }
+  },
+  {
+    "id": "iVtQEduMVAfVDLVexVY0",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794583702,
+      "_nanoseconds": 348000000
+    }
+  },
+  {
+    "id": "jOnX53qiRk5Xi3rqYq6A",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794583799,
+      "_nanoseconds": 31000000
+    }
+  },
+  {
+    "id": "jrg6qLXReIUjUjCBvxji",
+    "action": "Added feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794639871,
+      "_nanoseconds": 767000000
+    }
+  },
+  {
+    "id": "mV9RMEOuuV74jypviTuO",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1795164197,
+      "_nanoseconds": 478000000
+    }
+  },
+  {
+    "id": "missed_2026-11-18_06_00_360",
+    "schedule_time": "6:00 AM",
+    "action": "Awaiting device confirmation",
+    "type": "pending_confirmation",
+    "schedule_key": "06:00",
+    "logged_at": {
+      "_seconds": 1794959805,
+      "_nanoseconds": 139000000
+    }
+  },
+  {
+    "id": "missed_2026-11-19_06_00_360",
+    "schedule_time": "6:00 AM",
+    "action": "Awaiting device confirmation",
+    "type": "pending_confirmation",
+    "schedule_key": "06:00",
+    "logged_at": {
+      "_seconds": 1795042454,
+      "_nanoseconds": 588000000
+    }
+  },
+  {
+    "id": "missed_2026-11-21_06_00_360",
+    "schedule_time": "6:00 AM",
+    "action": "Awaiting device confirmation",
+    "type": "pending_confirmation",
+    "schedule_key": "06:00",
+    "logged_at": {
+      "_seconds": 1795232035,
+      "_nanoseconds": 872000000
+    }
+  },
+  {
+    "id": "toiBX3iuVbIbYJ6NKCim",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566794,
+      "_nanoseconds": 206000000
+    }
+  },
+  {
+    "id": "uIJrUbov9VeaH6uPOjD3",
+    "action": "Enabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566814,
+      "_nanoseconds": 577000000
+    }
+  },
+  {
+    "id": "xRKEJHvZo3gstlPaRPds",
+    "action": "Disabled feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794566812,
+      "_nanoseconds": 597000000
+    }
+  },
+  {
+    "id": "yGgrlA0rT6SbGv0hicwU",
+    "action": "Removed feeding schedule",
+    "type": "auto",
+    "logged_at": {
+      "_seconds": 1794788899,
+      "_nanoseconds": 22000000
+    }
+  }
+]

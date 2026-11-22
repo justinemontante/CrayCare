@@ -6327,24 +6327,11 @@ void pushFeederLog(String action, String type, String status,
   if (status.length() > 0) json.set("fields/status/stringValue", status);
   if (isfinite(requestedGrams) && requestedGrams >= 0.0f) {
     json.set("fields/requested_grams/doubleValue", String(requestedGrams, 1));
-    if (status == "completed" || status == "forced") {
-      // Servo-cycle estimate, not a directly weighed amount.
-      json.set("fields/estimated_dispensed_grams/doubleValue",
-               String(requestedGrams, 1));
-      json.set("fields/amount_basis/stringValue", "servo_cycle_estimate");
-    }
   }
-  if (levelBefore >= 0.0f) {
-    json.set("fields/feed_level_before/doubleValue", String(levelBefore, 1));
-  }
-  if (levelAfter >= 0.0f) {
-    json.set("fields/feed_level_after/doubleValue", String(levelAfter, 1));
-    json.set("fields/level_change_detected/booleanValue",
-             levelBefore >= 0.0f && levelBefore - levelAfter >= 0.5f);
-    if (status == "completed" && levelBefore >= 0.0f && levelBefore - levelAfter < 0.5f) {
-      json.set("fields/verification_note/stringValue",
-               "Possible dispense failure: no detectable feed-level change");
-    }
+  if (status == "completed" && levelBefore >= 0.0f && levelAfter >= 0.0f &&
+      levelBefore - levelAfter < 0.5f) {
+    json.set("fields/verification_note/stringValue",
+             "Possible dispense failure: no detectable feed-level change");
   }
 
   if (feedNowCommand) {

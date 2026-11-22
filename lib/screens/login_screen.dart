@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +28,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isResetLoading = false;
 
   String? _loginError;
+  int _failedSignInAttempts = 0;
+  int _loginCooldownLevel = 0;
+  bool _loginLimitReady = false;
+  DateTime? _loginLockedUntil;
+  Timer? _loginCooldownTimer;
+
+  static const _failedAttemptsKey = 'login_failed_attempts';
+  static const _cooldownLevelKey = 'login_cooldown_level';
+  static const _lockedUntilKey = 'login_locked_until_ms';
 
   // Global keys for the form and email field
   final _formKey = GlobalKey<FormState>();
@@ -39,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _loadSavedCredentials();
+    _loadLoginLimitState();
 
     // Dismiss the keyboard when the app first opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -48,6 +60,125 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool get _anyLoading =>
       _isEmailLoading || _isGoogleLoading || _isResetLoading;
+
+  bool get _isLoginLocked =>
+      _loginLockedUntil != null && DateTime.now().isBefore(_loginLockedUntil!);
+
+  Future<void> _loadLoginLimitState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lockedUntilMs = prefs.getInt(_lockedUntilKey) ?? 0;
+      final lockedUntil = DateTime.fromMillisecondsSinceEpoch(lockedUntilMs);
+      if (lockedUntilMs > 0 && DateTime.now().isBefore(lockedUntil)) {
+        if (!mounted) return;
+        setState(() {
+          _failedSignInAttempts = prefs.getInt(_failedAttemptsKey) ?? 0;
+          _loginCooldownLevel = prefs.getInt(_cooldownLevelKey) ?? 0;
+          _loginLockedUntil = lockedUntil;
+          _loginError = _cooldownMessage();
+        });
+        _startLoginCooldownTimer();
+      } else if (lockedUntilMs > 0) {
+        await prefs.remove(_lockedUntilKey);
+        await prefs.remove(_failedAttemptsKey);
+        if (mounted) {
+          setState(() {
+            _failedSignInAttempts = 0;
+            _loginCooldownLevel = prefs.getInt(_cooldownLevelKey) ?? 0;
+            _loginLockedUntil = null;
+          });
+        }
+      } else if (mounted) {
+        setState(() {
+          _failedSignInAttempts = prefs.getInt(_failedAttemptsKey) ?? 0;
+          _loginCooldownLevel = prefs.getInt(_cooldownLevelKey) ?? 0;
+        });
+      }
+    } catch (_) {
+      // The Firebase Auth throttling remains active if local preferences fail.
+    } finally {
+      if (mounted) setState(() => _loginLimitReady = true);
+    }
+  }
+
+  Future<void> _persistLoginLimitState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_failedAttemptsKey, _failedSignInAttempts);
+      await prefs.setInt(_cooldownLevelKey, _loginCooldownLevel);
+      if (_loginLockedUntil == null) {
+        await prefs.remove(_lockedUntilKey);
+      } else {
+        await prefs.setInt(
+          _lockedUntilKey,
+          _loginLockedUntil!.millisecondsSinceEpoch,
+        );
+      }
+    } catch (_) {
+      // The local cooldown is best-effort; Firebase also applies throttling.
+    }
+  }
+
+  Future<void> _recordFailedSignIn(String code) async {
+    if (!{
+      'wrong-password',
+      'user-not-found',
+      'invalid-credential',
+      'invalid-login-credentials',
+    }.contains(code)) {
+      return;
+    }
+
+    _failedSignInAttempts++;
+    if (_failedSignInAttempts >= 5) {
+      const cooldownMinutes = [1, 2, 5, 10, 15];
+      final index = _loginCooldownLevel
+          .clamp(0, cooldownMinutes.length - 1)
+          .toInt();
+      final wait = Duration(minutes: cooldownMinutes[index]);
+      _loginCooldownLevel++;
+      _failedSignInAttempts = 0;
+      _loginLockedUntil = DateTime.now().add(wait);
+      _startLoginCooldownTimer();
+      _loginError = _cooldownMessage();
+    }
+    await _persistLoginLimitState();
+  }
+
+  String _cooldownMessage() {
+    final remaining = _loginLockedUntil?.difference(DateTime.now());
+    final seconds = remaining == null || remaining.isNegative
+        ? 0
+        : remaining.inSeconds;
+    final minutesText = (seconds ~/ 60).toString().padLeft(2, '0');
+    final secondsText = (seconds % 60).toString().padLeft(2, '0');
+    return 'Too many failed attempts. Try again in $minutesText:$secondsText.';
+  }
+
+  void _startLoginCooldownTimer() {
+    _loginCooldownTimer?.cancel();
+    _loginCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (!_isLoginLocked) {
+        timer.cancel();
+        setState(() {
+          _loginLockedUntil = null;
+          _loginError = null;
+        });
+        _persistLoginLimitState();
+        return;
+      }
+      setState(() => _loginError = _cooldownMessage());
+    });
+  }
+
+  Future<void> _clearLoginLimitState() async {
+    _loginCooldownTimer?.cancel();
+    _failedSignInAttempts = 0;
+    _loginCooldownLevel = 0;
+    _loginLockedUntil = null;
+    await _persistLoginLimitState();
+  }
 
   void _loadSavedCredentials() async {
     try {
@@ -81,6 +212,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // EMAIL SIGN IN
   void _signIn() async {
+    if (!_loginLimitReady) await _loadLoginLimitState();
+    if (_isLoginLocked) {
+      setState(() => _loginError = _cooldownMessage());
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) {
       setState(() {
         _autovalidateMode = AutovalidateMode.onUserInteraction;
@@ -98,29 +235,34 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
 
+      await _clearLoginLimitState();
+
       _saveCredentials();
 
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         smoothPageRoute(
-          (_) =>
-              MainShell(
-                initialProfile: _authService.lastAuthenticatedProfile,
-                initialAdminData: _authService.lastAdminBootstrapData,
-              ),
+          (_) => MainShell(
+            initialProfile: _authService.lastAuthenticatedProfile,
+            initialAdminData: _authService.lastAdminBootstrapData,
+          ),
         ),
       );
     } catch (e) {
       final code = e is FirebaseAuthException ? e.code : '';
+      await _recordFailedSignIn(code);
       if (code == 'user-disabled') {
         setState(() {
-          _loginError = authErrorMessage(e);
+          _loginError = _isLoginLocked
+              ? _cooldownMessage()
+              : authErrorMessage(e);
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
       } else if (code == 'email-not-verified') {
         // User exists but hasn't verified their email yet — send them to
         // the VerifyScreen instead of showing a misleading error.
+        await _clearLoginLimitState();
         setState(() => _loginError = null);
         if (!mounted) return;
         Navigator.pushReplacement(
@@ -128,16 +270,9 @@ class _LoginScreenState extends State<LoginScreen> {
           smoothPageRoute((_) => const VerifyScreen()),
         );
       } else {
-        final isCredentialError = const {
-          'invalid-credential',
-          'invalid-login-credentials',
-          'user-not-found',
-          'wrong-password',
-          'invalid-email',
-        }.contains(code);
         setState(() {
-          _loginError = isCredentialError
-              ? 'Incorrect email or password.'
+          _loginError = _isLoginLocked
+              ? _cooldownMessage()
               : authErrorMessage(e);
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
@@ -350,6 +485,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _loginCooldownTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -476,7 +612,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextFormField(
                             key: _emailKey,
                             controller: _emailController,
-                            enabled: !_anyLoading,
+                            enabled: !_anyLoading && !_isLoginLocked,
                             keyboardType: TextInputType.emailAddress,
                             onChanged: (val) {
                               if (_loginError != null) {
@@ -521,7 +657,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _passwordController,
-                            enabled: !_anyLoading,
+                            enabled: !_anyLoading && !_isLoginLocked,
                             obscureText: _obscurePassword,
                             onChanged: (val) {
                               if (_loginError != null) {
@@ -641,7 +777,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           GradientButton(
-                            onTap: _anyLoading ? () {} : _signIn,
+                            onTap:
+                                (_anyLoading ||
+                                    !_loginLimitReady ||
+                                    _isLoginLocked)
+                                ? () {}
+                                : _signIn,
                             child: _isEmailLoading
                                 ? const Text(
                                     'Signing in…',

@@ -68,7 +68,7 @@ class FeederService extends ChangeNotifier {
   // checking in from a different timezone). Using DateTime.now() directly
   // would compare schedule times against the DEVICE's local clock instead,
   // causing missed-schedule false positives and feederDispatched date-key
-  // mismatches with the Cloud Function (functions/notifications/index.js,
+  // mismatches with the Cloud Function (functions/backend/index.js,
   // which hardcodes MANILA_OFFSET_MS). Mirror that same fixed +8h approach
   // here so both sides agree on "today" and "now".
   static const _manilaOffset = Duration(hours: 8);
@@ -245,8 +245,10 @@ class FeederService extends ChangeNotifier {
       final status = (data['status'] as String? ?? '').toLowerCase();
       if (status != 'completed' && status != 'forced') continue;
       completedFeeds++;
+      // Use the requested dose as the estimate; legacy logs may only have
+      // estimated_dispensed_grams, so keep that as a read-only fallback.
       final rawGrams =
-          data['estimated_dispensed_grams'] ?? data['requested_grams'];
+          data['requested_grams'] ?? data['estimated_dispensed_grams'];
       if (rawGrams is num && rawGrams.isFinite && rawGrams > 0) {
         estimatedGrams += rawGrams.toDouble();
       }
@@ -541,7 +543,6 @@ class FeederService extends ChangeNotifier {
       _logsSub = tankDoc
           .collection('feeder_logs')
           .orderBy('logged_at', descending: true)
-          .limit(50)
           .snapshots()
           .listen(
             (snapshot) {
@@ -576,18 +577,16 @@ class FeederService extends ChangeNotifier {
                         commandId: data['command_id'] as String?,
                         requestedGrams: (data['requested_grams'] as num?)
                             ?.toDouble(),
+                        // Keep the ESP32's actual servo-cycle estimate separate
+                        // from the requested dose. Callers that want "dispensed"
+                        // must prefer this; the requested dose is only a fallback
+                        // for legacy logs that predate this field.
                         estimatedDispensedGrams:
                             (data['estimated_dispensed_grams'] as num?)
                                 ?.toDouble(),
                         occurrenceTimestamp: data['occurrence_at'] == null
                             ? null
                             : _parseLoggedAtMillis(data['occurrence_at']),
-                        feedLevelBefore: (data['feed_level_before'] as num?)
-                            ?.toDouble(),
-                        feedLevelAfter: (data['feed_level_after'] as num?)
-                            ?.toDouble(),
-                        levelChangeDetected:
-                            data['level_change_detected'] as bool?,
                       ),
                     );
                   } catch (e) {
@@ -913,10 +912,8 @@ class FeederService extends ChangeNotifier {
               );
             }
             final nowMs = DateTime.now().millisecondsSinceEpoch;
-            String action;
             if (operation == 'delete') {
               tx.delete(oldRef!);
-              action = 'Removed feeding schedule';
             } else if (operation == 'toggle') {
               final enabled = payload['enabled'] == true;
               tx.update(oldRef!, {
@@ -924,9 +921,6 @@ class FeederService extends ChangeNotifier {
                 'isDone': false,
                 if (enabled) 'effective_at_ms': nowMs,
               });
-              action = enabled
-                  ? 'Enabled feeding schedule'
-                  : 'Disabled feeding schedule';
             } else if (operation == 'add' || operation == 'edit') {
               if (operation == 'edit' &&
                   oldId != targetId &&
@@ -963,17 +957,12 @@ class FeederService extends ChangeNotifier {
                   'last_occurrence_at': FieldValue.delete(),
                 });
               }
-              action = operation == 'add'
-                  ? 'Added feeding schedule'
-                  : 'Edited feeding schedule';
             } else {
               throw ArgumentError('Unknown schedule action.');
             }
-            tx.set(tank.collection('feeder_logs').doc(), {
-              'action': action,
-              'type': 'auto',
-              'logged_at': FieldValue.serverTimestamp(),
-            });
+            // NOTE: Only actual dispensing events belong in feeder_logs.
+            // Schedule configuration changes (add, edit, toggle, delete)
+            // are NOT recorded into feeder_logs.
           }, maxAttempts: 3)
           .timeout(const Duration(seconds: 20));
     } on TimeoutException {

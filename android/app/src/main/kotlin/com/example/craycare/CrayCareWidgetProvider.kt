@@ -76,14 +76,17 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
                 if (online) Color.parseColor("#168B82") else Color.parseColor("#DC3545"),
             )
 
-            val anomalyStatus = prefs.getString("widget_wqad", "WAITING") ?: "WAITING"
-            views.setTextViewText(R.id.widget_anomaly_status, anomalyStatus)
-            views.setTextColor(R.id.widget_anomaly_status, statusColor(anomalyStatus))
+            val classificationStatus = prefs.getString(
+                "widget_classification_status",
+                "MODEL PENDING",
+            ) ?: "MODEL PENDING"
+            views.setTextViewText(R.id.widget_classification_status, classificationStatus)
+            views.setTextColor(R.id.widget_classification_status, statusColor(classificationStatus))
             views.setTextViewText(
-                R.id.widget_concern,
+                R.id.widget_classification_insight,
                 prefs.getString(
-                    "widget_concern",
-                    if (signedIn) "Learning the tank's usual pattern" else "Open CrayCare to sign in",
+                    "widget_classification_insight",
+                    if (signedIn) "Classification model is not connected" else "Open CrayCare to sign in",
                 ),
             )
 

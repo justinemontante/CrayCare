@@ -551,9 +551,6 @@ class LogEntry {
   final double? requestedGrams;
   final double? estimatedDispensedGrams;
   final int? occurrenceTimestamp;
-  final double? feedLevelBefore;
-  final double? feedLevelAfter;
-  final bool? levelChangeDetected;
 
   LogEntry(
     this.action,
@@ -568,9 +565,6 @@ class LogEntry {
     this.requestedGrams,
     this.estimatedDispensedGrams,
     this.occurrenceTimestamp,
-    this.feedLevelBefore,
-    this.feedLevelAfter,
-    this.levelChangeDetected,
   });
 }
 

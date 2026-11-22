@@ -203,7 +203,6 @@ class ProductionScreenState extends State<ProductionScreen> {
       case 2:
         return TrendsTab(
           key: ValueKey('trends_$batchKey'),
-          lastEdited: _lastEdited,
         );
       default:
         return const SizedBox.shrink();
@@ -1777,7 +1776,7 @@ class ProductionScreenState extends State<ProductionScreen> {
           ],
         ),
       ),
-    ).whenComplete(controller.dispose);
+    );
   }
 
   void _showLogsModal() {
@@ -1937,8 +1936,7 @@ class ProductionScreenState extends State<ProductionScreen> {
                                             fontWeight: FontWeight.w600,
                                             color: AppColors.dark,
                                           ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                          softWrap: true,
                                         ),
                                         if (act.abw != null &&
                                             act.avgLengthInches != null)

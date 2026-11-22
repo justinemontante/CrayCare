@@ -45,6 +45,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   bool _notificationPromptCheckStarted = false;
   bool _connectivityWasOnline = true;
   bool _showConnectedMessage = false;
+  bool _isAppForeground = true;
+  bool _hadOfflineWhileForeground = false;
+  bool _checkingConnectivityOnResume = false;
+  int _connectivityResumeCheckToken = 0;
   DateTime? _offlineNoticeStartedAt;
   Timer? _connectedMessageTimer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
@@ -110,6 +114,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !ConnectivityService.instance.isOnline) {
         _offlineNoticeStartedAt ??= DateTime.now();
+        _hadOfflineWhileForeground = true;
       }
       _syncActiveScreenWork();
       unawaited(_maybeShowNotificationPermissionPrompt());
@@ -129,10 +134,47 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Android may pause the connectivity timer and Firebase streams while
-      // the device is asleep. Recheck immediately when the app returns so a
-      // stale offline banner does not remain after internet is restored.
-      unawaited(ConnectivityService.instance.checkConnectivity());
+      _isAppForeground = true;
+      // Start a fresh foreground outage window. If connectivity changed while
+      // the app was away, don't flash a "Connected" toast on returning.
+      _hadOfflineWhileForeground = !ConnectivityService.instance.isOnline;
+      _offlineNoticeStartedAt = _hadOfflineWhileForeground
+          ? DateTime.now()
+          : null;
+      _connectedMessageTimer?.cancel();
+      final checkToken = ++_connectivityResumeCheckToken;
+      if (mounted) {
+        setState(() {
+          _checkingConnectivityOnResume = true;
+          _showConnectedMessage = false;
+        });
+      }
+      // Hide any stale status until this fresh connectivity probe completes.
+      unawaited(_checkConnectivityAfterResume(checkToken));
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _isAppForeground = false;
+      _connectivityResumeCheckToken++;
+      _checkingConnectivityOnResume = false;
+      _hadOfflineWhileForeground = false;
+      _offlineNoticeStartedAt = null;
+      _connectedMessageTimer?.cancel();
+      if (_showConnectedMessage && mounted) {
+        setState(() => _showConnectedMessage = false);
+      }
+    }
+  }
+
+  Future<void> _checkConnectivityAfterResume(int checkToken) async {
+    try {
+      await ConnectivityService.instance.checkConnectivity();
+    } finally {
+      if (mounted &&
+          _isAppForeground &&
+          checkToken == _connectivityResumeCheckToken) {
+        setState(() => _checkingConnectivityOnResume = false);
+      }
     }
   }
 
@@ -143,31 +185,35 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void _onConnectivityChange() {
     final isOnline = ConnectivityService.instance.isOnline;
     if (isOnline == _connectivityWasOnline) return;
-    final wasOffline = !_connectivityWasOnline;
     _connectivityWasOnline = isOnline;
     _connectedMessageTimer?.cancel();
+    var shouldShowConnectedMessage = false;
 
     final offlineDuration = _offlineNoticeStartedAt == null
         ? Duration.zero
         : DateTime.now().difference(_offlineNoticeStartedAt!);
     if (isOnline) {
       _offlineNoticeStartedAt = null;
+      shouldShowConnectedMessage =
+          _isAppForeground &&
+          !_checkingConnectivityOnResume &&
+          _hadOfflineWhileForeground &&
+          offlineDuration >= const Duration(seconds: 2);
+      _hadOfflineWhileForeground = false;
+      if (shouldShowConnectedMessage) {
+        _connectedMessageTimer = Timer(const Duration(milliseconds: 2600), () {
+          if (mounted) setState(() => _showConnectedMessage = false);
+        });
+      }
     } else {
-      _offlineNoticeStartedAt ??= DateTime.now();
+      if (_isAppForeground) {
+        _offlineNoticeStartedAt ??= DateTime.now();
+        _hadOfflineWhileForeground = true;
+      }
     }
 
     if (!mounted) return;
-    setState(
-      () => _showConnectedMessage =
-          wasOffline &&
-          isOnline &&
-          offlineDuration >= const Duration(seconds: 2),
-    );
-    if (_showConnectedMessage) {
-      _connectedMessageTimer = Timer(const Duration(milliseconds: 2600), () {
-        if (mounted) setState(() => _showConnectedMessage = false);
-      });
-    }
+    setState(() => _showConnectedMessage = shouldShowConnectedMessage);
   }
 
   void _applyProfile(Map<String, dynamic> data) {
@@ -507,6 +553,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   Widget _buildConnectivityBanner() {
+    if (_checkingConnectivityOnResume) {
+      return const SizedBox.shrink();
+    }
+
     final Widget message;
     if (!ConnectivityService.instance.isOnline) {
       message = const Padding(

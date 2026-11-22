@@ -5,37 +5,11 @@
   },
   "functions": [
     {
-      "source": "functions/notifications",
+      "source": "functions/backend",
       "codebase": "notifications",
       "ignore": [
         "node_modules",
         ".git",
-        "firebase-debug.log",
-        "firestore-debug.log",
-        "ui-debug.log"
-      ]
-    },
-    {
-      "source": "functions/ml",
-      "codebase": "ml",
-      "runtime": "python312",
-      "ignore": [
-        ".git",
-        "venv",
-        ".venv",
-        "__pycache__",
-        "*.pyc",
-        "Dataset.csv",
-        "wqad_fishpond_candidate.joblib",
-        "wqad_candidate.joblib",
-        "real_sensor_history.csv",
-        "wqad_candidate.joblib",
-        "training_data.py",
-        "export_firestore.py",
-        "train_model.py",
-        "dataset_preparation.py",
-        "predict.py",
-        "test_*.py",
         "firebase-debug.log",
         "firestore-debug.log",
         "ui-debug.log"
@@ -64,5 +38,14 @@
         }
       }
     }
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true
+    },
+    "singleProjectMode": true
   }
 }

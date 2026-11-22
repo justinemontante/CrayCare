@@ -21,8 +21,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   String _categoryFor(NotificationItem notification) {
-    // Feeder failures intentionally retain warning severity for their color and
-    // icon, but belong with all other feeder outcomes in the Feeding filter.
+    
     if (notification.notif_type == 'feeding' ||
         notification.id.startsWith('feeder_')) {
       return 'feeding';

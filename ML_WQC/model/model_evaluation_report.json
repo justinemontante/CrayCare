@@ -1,0 +1,252 @@
+{
+  "algorithm": "RandomForestClassifier",
+  "model_version": "wqc-rf-v5-3class",
+  "features": [
+    "temperature",
+    "ph_level",
+    "dissolved_oxygen",
+    "turbidity",
+    "do_temp_ratio"
+  ],
+  "class_codes": {
+    "0": "Critical",
+    "1": "Poor",
+    "2": "Good"
+  },
+  "parameters": {
+    "n_estimators": 300,
+    "max_depth": 12,
+    "min_samples_leaf": 2,
+    "class_weight": "balanced_subsample",
+    "max_features": null,
+    "random_state": 42
+  },
+  "label_method": "100% Machine Learning 3-class classification: Critical (0), Poor (1), and Good (2) are directly predicted by the Random Forest model.",
+  "provenance": {
+    "dataset_file": "craycare_water_quality_dataset.csv",
+    "total_master_rows": 9502,
+    "observed_source_rows": 4962,
+    "observed_usable_rows": 4962,
+    "observed_excluded_invalid_rows": 0,
+    "standards_and_baseline_scenarios_rows": 4540,
+    "observed_class_counts": {
+      "Poor": 1176,
+      "Good": 3786
+    },
+    "observed_start": "2026-10-09T13:00:00",
+    "observed_end": "2026-11-12T23:50:00"
+  },
+  "training_scenarios": {
+    "standards_fit_only_rows": 4540,
+    "scenario_source": "Integrated inside craycare_water_quality_dataset.csv (data_type != 'IoT Sensor Reading')",
+    "note": "Generated standards boundary scenarios enable 3-class learning across all sensor cutoffs without modifying evaluation sets."
+  },
+  "split": {
+    "method": "chronological observed-data split: first 70% fit, next 15% validation, final 15% holdout",
+    "gap_between_sets_hours": 2,
+    "observed_fit_rows": 3473,
+    "observed_validation_rows": 732,
+    "observed_holdout_rows": 733,
+    "fit_class_counts_including_standards": {
+      "Critical": 750,
+      "Poor": 3011,
+      "Good": 4252
+    },
+    "validation_class_counts": {
+      "Poor": 310,
+      "Good": 422
+    },
+    "holdout_class_counts": {
+      "Poor": 433,
+      "Good": 300
+    },
+    "fit_period": [
+      "2026-10-09T13:00:00",
+      "2026-11-02T15:40:00"
+    ],
+    "validation_period": [
+      "2026-11-02T17:50:00",
+      "2026-11-07T19:40:00"
+    ],
+    "holdout_period": [
+      "2026-11-07T21:50:00",
+      "2026-11-12T23:50:00"
+    ]
+  },
+  "validation_metrics": {
+    "rows": 732,
+    "accuracy": 0.9262295081967213,
+    "balanced_accuracy": 0.9137593640116191,
+    "confusion_matrix_labels_0_1_2": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        258,
+        52
+      ],
+      [
+        0,
+        2,
+        420
+      ]
+    ],
+    "per_class": {
+      "Critical": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "Poor": {
+        "precision": 0.9923076923076923,
+        "recall": 0.832258064516129,
+        "f1": 0.9052631578947369,
+        "support": 310
+      },
+      "Good": {
+        "precision": 0.8898305084745762,
+        "recall": 0.995260663507109,
+        "f1": 0.9395973154362416,
+        "support": 422
+      }
+    },
+    "macro_f1": 0.6149534911103262,
+    "weighted_f1": 0.9250568935265878
+  },
+  "holdout_metrics": {
+    "rows": 733,
+    "accuracy": 0.8703956343792633,
+    "balanced_accuracy": 0.8815973826020016,
+    "confusion_matrix_labels_0_1_2": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        355,
+        78
+      ],
+      [
+        0,
+        17,
+        283
+      ]
+    ],
+    "per_class": {
+      "Critical": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "Poor": {
+        "precision": 0.9543010752688172,
+        "recall": 0.8198614318706697,
+        "f1": 0.8819875776397516,
+        "support": 433
+      },
+      "Good": {
+        "precision": 0.7839335180055401,
+        "recall": 0.9433333333333334,
+        "f1": 0.8562783661119516,
+        "support": 300
+      }
+    },
+    "macro_f1": 0.5794219812505678,
+    "weighted_f1": 0.8714653901113205
+  },
+  "majority_baseline_holdout_metrics": {
+    "rows": 733,
+    "accuracy": 0.4092769440654843,
+    "balanced_accuracy": 0.5,
+    "confusion_matrix_labels_0_1_2": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        433
+      ],
+      [
+        0,
+        0,
+        300
+      ]
+    ],
+    "per_class": {
+      "Critical": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "Poor": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 433
+      },
+      "Good": {
+        "precision": 0.4092769440654843,
+        "recall": 1.0,
+        "f1": 0.5808325266214908,
+        "support": 300
+      }
+    },
+    "macro_f1": 0.1936108422071636,
+    "weighted_f1": 0.2377213615094778
+  },
+  "threshold_rule_baseline_holdout_metrics": {
+    "rows": 733,
+    "accuracy": 1.0,
+    "balanced_accuracy": 1.0,
+    "confusion_matrix_labels_0_1_2": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        433,
+        0
+      ],
+      [
+        0,
+        0,
+        300
+      ]
+    ],
+    "per_class": {
+      "Critical": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "Poor": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 433
+      },
+      "Good": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 300
+      }
+    },
+    "macro_f1": 0.6666666666666666,
+    "weighted_f1": 1.0
+  }
+}

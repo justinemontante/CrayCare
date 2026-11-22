@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
@@ -16,8 +17,11 @@ class AnalyticsLineChart extends StatefulWidget {
   final double? axisMinY;
   final int? axisDecimalPlaces;
   final int decimalPlaces;
+  final bool fitYAxisToData;
+  final bool tightLiveYAxis;
   final bool initialScrollToEnd;
   final bool connectAcrossMissingData;
+  final bool liveMode;
 
   const AnalyticsLineChart({
     super.key,
@@ -34,30 +38,74 @@ class AnalyticsLineChart extends StatefulWidget {
     this.axisMinY,
     this.axisDecimalPlaces,
     this.decimalPlaces = 1,
+    this.fitYAxisToData = false,
+    this.tightLiveYAxis = false,
     this.initialScrollToEnd = false,
     this.connectAcrossMissingData = false,
+    this.liveMode = false,
   });
 
   @override
   State<AnalyticsLineChart> createState() => _AnalyticsLineChartState();
 }
 
-class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
+class _AnalyticsLineChartState extends State<AnalyticsLineChart>
+    with TickerProviderStateMixin {
   double _scrollOffset = 0.0;
   double _visibleWidth = 0.0;
   bool _needsScrollToEnd = false;
+  late final AnimationController _transitionController;
+  late final AnimationController _livePulseController;
+  List<double>? _transitionFrom;
 
   static const double _minPointSpacing = 12.0;
 
   @override
   void initState() {
     super.initState();
+    _transitionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    )..addListener(_onTransitionTick);
+    _livePulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1250),
+    );
+    if (widget.liveMode) _livePulseController.repeat(reverse: true);
     if (widget.initialScrollToEnd) _needsScrollToEnd = true;
+  }
+
+  void _onTransitionTick() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didUpdateWidget(covariant AnalyticsLineChart oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.liveMode != oldWidget.liveMode) {
+      if (widget.liveMode) {
+        _livePulseController.repeat(reverse: true);
+      } else {
+        _livePulseController.stop();
+      }
+    }
+    if (widget.liveMode &&
+        oldWidget.liveMode &&
+        !listEquals(widget.data, oldWidget.data) &&
+        _isSequentialLiveUpdate(oldWidget, widget)) {
+      final progress = Curves.easeInOut.transform(_transitionController.value);
+      _transitionFrom = _blendData(
+        _transitionFrom ?? oldWidget.data,
+        oldWidget.data,
+        progress,
+      );
+      _transitionController.forward(from: 0);
+    } else if (!listEquals(widget.data, oldWidget.data)) {
+      _transitionFrom = null;
+      _transitionController
+        ..stop()
+        ..value = 1;
+    }
     if (widget.initialScrollToEnd && widget.data != oldWidget.data) {
       _needsScrollToEnd = true;
     }
@@ -73,7 +121,74 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     }
   }
 
-  double _yLabelW() => widget.large ? 36.0 : 32.0;
+  bool _isSequentialLiveUpdate(
+    AnalyticsLineChart oldWidget,
+    AnalyticsLineChart newWidget,
+  ) {
+    final oldLabels = oldWidget.labels;
+    final newLabels = newWidget.labels;
+    if (oldWidget.data.isEmpty ||
+        newWidget.data.isEmpty ||
+        oldLabels == null ||
+        newLabels == null ||
+        oldLabels.length != oldWidget.data.length ||
+        newLabels.length != newWidget.data.length) {
+      return false;
+    }
+    if (newWidget.data.length == oldWidget.data.length + 1) {
+      return listEquals(oldLabels, newLabels.take(oldLabels.length).toList());
+    }
+    if (newWidget.data.length == oldWidget.data.length &&
+        oldWidget.data.length > 1) {
+      return listEquals(
+        oldLabels.skip(1).toList(),
+        newLabels.take(newLabels.length - 1).toList(),
+      );
+    }
+    return oldWidget.data.length == 1 &&
+        newWidget.data.length == 1 &&
+        oldLabels.single != newLabels.single;
+  }
+
+  List<double> _blendData(List<double> from, List<double> to, double progress) {
+    if (to.isEmpty) return const [];
+    final start = List<double>.from(from);
+    while (start.length < to.length) {
+      start.add(start.isEmpty ? to.first : start.last);
+    }
+    if (start.length > to.length) {
+      start.removeRange(0, start.length - to.length);
+    }
+    return List<double>.generate(to.length, (index) {
+      final a = start[index];
+      final b = to[index];
+      if (!a.isFinite || !b.isFinite) return b;
+      return a + ((b - a) * progress);
+    });
+  }
+
+  List<double> get _displayData {
+    final from = _transitionFrom;
+    if (!widget.liveMode || from == null || _transitionController.value >= 1) {
+      return widget.data;
+    }
+    return _blendData(
+      from,
+      widget.data,
+      Curves.easeInOut.transform(_transitionController.value),
+    );
+  }
+
+  @override
+  void dispose() {
+    _transitionController.dispose();
+    _livePulseController.dispose();
+    super.dispose();
+  }
+
+  // Reserve enough room for decimal sensor values and the unit on the
+  // bottom tick, while keeping the same six Y-axis labels.
+  double _yLabelW() => widget.large ? 48.0 : 44.0;
 
   double _virtualWidth() {
     final data = widget.data;
@@ -150,29 +265,41 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.data.isEmpty) return const SizedBox.shrink();
-    final validData = widget.data.where((v) => !v.isNaN).toList();
+    final displayData = _displayData;
+    if (displayData.isEmpty) return const SizedBox.shrink();
+    final validData = displayData.where((v) => !v.isNaN).toList();
     if (validData.isEmpty) return const SizedBox.shrink();
 
     final curIdx = widget.selectedIndex;
 
     double originalMin = validData.reduce(min);
     double originalMax = validData.reduce(max);
-    final safeThresholdMin = widget.thresholdMin;
-    final safeThresholdMax = widget.thresholdMax;
-    if (safeThresholdMin != null && safeThresholdMin.isFinite) {
-      originalMin = min(originalMin, safeThresholdMin);
-    }
-    // 999 is the app's sentinel for an intentionally unbounded upper range.
-    if (safeThresholdMax != null &&
-        safeThresholdMax.isFinite &&
-        safeThresholdMax < 999) {
-      originalMax = max(originalMax, safeThresholdMax);
+    if (!widget.fitYAxisToData) {
+      final safeThresholdMin = widget.thresholdMin;
+      final safeThresholdMax = widget.thresholdMax;
+      if (safeThresholdMin != null && safeThresholdMin.isFinite) {
+        originalMin = min(originalMin, safeThresholdMin);
+      }
+      // 999 is the app's sentinel for an intentionally unbounded upper range.
+      if (safeThresholdMax != null &&
+          safeThresholdMax.isFinite &&
+          safeThresholdMax < 999) {
+        originalMax = max(originalMax, safeThresholdMax);
+      }
     }
     double minVal;
     double maxVal;
 
-    if ((originalMax - originalMin).abs() < 0.01) {
+    if (widget.fitYAxisToData) {
+      // The 24-hour chart uses the observed readings for its own Y range so
+      // small changes remain visible without changing other time filters.
+      final span = originalMax - originalMin;
+      final padding = widget.liveMode && widget.tightLiveYAxis
+          ? max(span * 0.05, 0.025)
+          : max(span * 0.05, max(originalMax.abs() * 0.01, 0.01));
+      minVal = originalMin - padding;
+      maxVal = originalMax + padding;
+    } else if ((originalMax - originalMin).abs() < 0.01) {
       double padding = originalMin == 0.0
           ? 5.0
           : (originalMin * 0.1).clamp(2.0, 10.0);
@@ -186,7 +313,10 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     // Sensor readings are non-negative. Keep dynamic scaling for detail, but
     // never let the axis padding create negative tick labels. Turbidity can
     // additionally request an exact zero baseline.
-    minVal = max(0.0, widget.axisMinY ?? minVal);
+    minVal = max(
+      0.0,
+      widget.fitYAxisToData ? minVal : (widget.axisMinY ?? minVal),
+    );
     if (maxVal <= minVal) maxVal = minVal + 1.0;
     final range = maxVal - minVal;
 
@@ -201,8 +331,7 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
         _clampScroll();
         final vw = _virtualWidth();
         final scrollable = _isScrollable;
-        final scrollBarH = scrollable ? 20.0 : 0.0;
-        final chartH = widget.height - scrollBarH;
+        final chartH = widget.height;
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -218,7 +347,7 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                       : null,
                   child: CustomPaint(
                     painter: _LineChartPainter(
-                      widget.data,
+                      displayData,
                       minVal,
                       range,
                       widget.color,
@@ -233,6 +362,8 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
                       scrollOffset: _scrollOffset,
                       virtualWidth: vw,
                       connectAcrossMissingData: widget.connectAcrossMissingData,
+                      liveMode: widget.liveMode,
+                      livePulse: _livePulseController,
                     ),
                     size: Size(_visibleWidth, chartH),
                   ),
@@ -329,7 +460,7 @@ class _AnalyticsLineChartState extends State<AnalyticsLineChart> {
     if (chartW <= 0 || data.length <= 1) return padL;
     final stepX = chartW / (data.length - 1);
     final x = padL + curIdx * stepX - _scrollOffset;
-    const tooltipW = 100.0;
+    const tooltipW = 140.0;
     if (x + tooltipW > totalWidth) {
       return max(0.0, totalWidth - tooltipW);
     }
@@ -381,6 +512,8 @@ class _LineChartPainter extends CustomPainter {
   final double scrollOffset;
   final double virtualWidth;
   final bool connectAcrossMissingData;
+  final bool liveMode;
+  final Animation<double>? livePulse;
 
   _LineChartPainter(
     this.data,
@@ -398,7 +531,9 @@ class _LineChartPainter extends CustomPainter {
     this.scrollOffset = 0.0,
     this.virtualWidth = 0.0,
     this.connectAcrossMissingData = false,
-  });
+    this.liveMode = false,
+    this.livePulse,
+  }) : super(repaint: livePulse);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -406,11 +541,11 @@ class _LineChartPainter extends CustomPainter {
 
     // Keep chart geometry aligned with hit-testing/scroll calculations in the
     // stateful chart widget. Add visual spacing to the time labels themselves.
-    final yLabelW = large ? 36.0 : 32.0;
+    final yLabelW = large ? 48.0 : 44.0;
     final padL = showAxis ? yLabelW : 4.0;
     const padR = 0.0;
     final padT = 8.0;
-    final padB = showAxis ? (large ? 44.0 : 34.0) : 4.0;
+    final padB = showAxis ? (large ? 52.0 : 42.0) : 4.0;
 
     final visibleChartW = size.width - padL - padR;
     final chartH = size.height - padT - padB;
@@ -424,7 +559,12 @@ class _LineChartPainter extends CustomPainter {
     final visibleRight = size.width - padR;
 
     final maxVal = minVal + range;
-    final textStyle = TextStyle(
+    final yTextStyle = TextStyle(
+      color: AppColors.darkWith(0.53),
+      fontSize: 8,
+      fontWeight: FontWeight.w500,
+    );
+    final xTextStyle = TextStyle(
       color: AppColors.darkWith(0.53),
       fontSize: large ? 8 : 7,
       fontWeight: FontWeight.w500,
@@ -435,31 +575,25 @@ class _LineChartPainter extends CustomPainter {
         ..color = AppColors.darkWith(0.05)
         ..strokeWidth = 1;
 
-      final decimalPlaces = axisDecimalPlaces ??
-          (range < 1.0
-              ? 2
-              : range < 5.0
-                  ? 1
-                  : 0);
+      // Keep two decimal places, matching the precision shown for sensor
+      // readings in the chart tooltip, even when the axis range is wide.
+      final decimalPlaces = axisDecimalPlaces ?? 2;
 
       const tickCount = 5;
       for (int i = 0; i <= tickCount; i++) {
+        final val = i == tickCount ? minVal : maxVal - (range * i / tickCount);
         final y = padT + (chartH * i / tickCount);
         canvas.drawLine(
           Offset(visibleLeft, y),
           Offset(visibleRight, y),
           gridPaint,
         );
-
-        final val = i == tickCount
-            ? minVal
-            : maxVal - (range * i / tickCount);
         final safeVal = val.abs() < 1e-9 ? 0.0 : val;
         final label = safeVal.toStringAsFixed(decimalPlaces);
         final tp = TextPainter(
           text: TextSpan(
             text: i == tickCount ? '$label $unit' : label,
-            style: textStyle,
+            style: yTextStyle,
           ),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: yLabelW - 2);
@@ -468,7 +602,7 @@ class _LineChartPainter extends CustomPainter {
     }
 
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(padL - 1, 0, visibleChartW + 2, size.height));
+    canvas.clipRect(Rect.fromLTWH(padL - 1, padT, visibleChartW + 2, chartH));
 
     final paintLine = Paint()
       ..color = color
@@ -541,6 +675,23 @@ class _LineChartPainter extends CustomPainter {
       final y = padT + chartH - ((data[i] - minVal) / range) * chartH;
       canvas.drawCircle(Offset(x, y), 3, dotBorder);
       canvas.drawCircle(Offset(x, y), 2, dotPaint);
+    }
+
+    if (liveMode) {
+      final latestIndex = data.lastIndexWhere((value) => !value.isNaN);
+      if (latestIndex >= 0) {
+        final x = padL + latestIndex * stepX - scrollOffset;
+        if (x >= visibleLeft - 5 && x <= visibleRight + 5) {
+          final y =
+              padT + chartH - ((data[latestIndex] - minVal) / range) * chartH;
+          final pulse = livePulse?.value ?? 0.0;
+          canvas.drawCircle(
+            Offset(x, y),
+            3 + (pulse * 5),
+            Paint()..color = color.withValues(alpha: 0.24 * (1 - pulse)),
+          );
+        }
+      }
     }
 
     if (selectedIndex != null &&
@@ -630,7 +781,7 @@ class _LineChartPainter extends CustomPainter {
         final labelExtents = <double>[];
         for (final idx in visibleIndices) {
           final tp = TextPainter(
-            text: TextSpan(text: labels![idx], style: textStyle),
+            text: TextSpan(text: labels![idx], style: xTextStyle),
             textDirection: TextDirection.ltr,
           )..layout();
           labelPainters.add(tp);
@@ -651,7 +802,7 @@ class _LineChartPainter extends CustomPainter {
           final labelX = firstLabelX + labelSpacing * i;
           // Keep timestamps below the plot and separated from the y-axis
           // bottom tick; this extra offset prevents the labels from touching.
-          final anchorY = size.height - padB + 35.0;
+          final anchorY = size.height - padB + (liveMode ? 35.0 : 41.0);
           canvas.save();
           canvas.translate(labelX, anchorY);
           canvas.rotate(angle);
@@ -677,5 +828,7 @@ class _LineChartPainter extends CustomPainter {
       oldDelegate.thresholdMax != thresholdMax ||
       oldDelegate.scrollOffset != scrollOffset ||
       oldDelegate.virtualWidth != virtualWidth ||
-      oldDelegate.connectAcrossMissingData != connectAcrossMissingData;
+      oldDelegate.connectAcrossMissingData != connectAcrossMissingData ||
+      oldDelegate.liveMode != liveMode ||
+      oldDelegate.livePulse != livePulse;
 }

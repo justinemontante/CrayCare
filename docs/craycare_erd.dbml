@@ -217,36 +217,26 @@ TableGroup "Feeding Control" {
 
 Ref: feeder_schedule_days.(tank_id, schedule_id) > feeder_schedules.(tank_id, schedule_id)
 
-Table water_quality_anomaly_detection_history [note: 'Canonical WQAD history. Each fresh sensor-history record can produce one detection; the app treats the greatest processed_at timestamp as latest. Legacy records in water_quality_anomaly_detections remain read-only during transition.'] {
+Table water_quality_classification_history [note: 'Persisted at tanks/{tankId}/water_quality_classification_history/{dateKey}/entries/{entryId}'] {
   tank_id varchar [not null, ref: > tanks.tank_id]
-  uid varchar [ref: > users.uid, note: 'Owner UID attached by the Cloud Function; nullable when unavailable']
-  detection_id varchar [not null, note: 'Source-keyed Firestore document ID for automatic analysis; manual diagnostic runs use YYYYMMDDTHHMMSS']
-  status varchar [not null, note: 'Normal | Unusual | Insufficient']
-  is_anomaly boolean [not null]
-  anomaly_score decimal(5,2) [not null, note: '0–100 percentile relative to reference patterns; not a safety score']
-  source varchar [not null, note: 'WQAD model | Model unavailable | Insufficient data | Stale sensor history']
+  date_key varchar [not null, note: 'Date partition key: YYYY-MM-DD']
+  entry_id varchar [not null, note: 'Source sensor-reading entry ID: r_{timestampMillis}']
+  prediction_status varchar [not null, note: 'classified | insufficient_data | unavailable']
+  class_code int [note: '0 = Critical | 1 = Poor | 2 = Good']
+  class_label varchar [note: 'Critical | Poor | Good']
+  threshold_status varchar [note: 'Critical | Poor | Good']
   insight text [not null]
   recommendation text [not null]
-  processed_at timestamp [not null, note: 'Firestore Timestamp; app orders history by it']
-  source_recorded_at timestamp [note: 'Capture time of the newest sensor-history record used for this detection; may be absent when no source timestamp is available']
+  sensor_trends text [note: 'JSON map storing rolling direction, zone, and lifecycle state per sensor']
+  source_recorded_at timestamp [note: 'Sensor capture timestamp']
+  source_reading_path varchar [not null, note: 'Path to originating raw sensor history record']
+  model_version varchar [not null, note: 'wqc-rf-v4']
+  created_at timestamp [not null]
   Indexes {
-    (tank_id, detection_id) [pk]
-    (tank_id, processed_at)
+    (tank_id, date_key, entry_id) [pk]
+    (tank_id, created_at)
   }
-  Note: 'Unsupervised Isolation Forest output; safety thresholds remain separate and are not training labels.'
-}
-
-Table water_quality_anomaly_contributors [note: 'Normalized SQL representation of items in the Firestore contributors array; an empty array produces no child rows'] {
-  tank_id varchar [not null]
-  detection_id varchar [not null]
-  contributor_order smallint [not null, note: 'One-based rank in the Firestore contributors array']
-  sensor varchar [not null]
-  value decimal(10,3) [not null]
-  direction varchar [not null]
-  contribution_score decimal(10,6) [not null]
-  Indexes {
-    (tank_id, detection_id, contributor_order) [pk]
-  }
+  Note: 'Supervised Random Forest classification and trend-aware decision support.'
 }
 
 Table batches [note: 'Persisted at tanks/{tankId}/batches/{batchId}; growth averages are derived by the app from the baseline sampling record measurements, not stored on the batch document'] {
@@ -324,7 +314,6 @@ Table harvest_records [note: 'Persisted at tanks/{tankId}/batches/{batchId}/harv
 
 Ref: sampling_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: sampling_measurements.(tank_id, batch_id, sampling_id) > sampling_records.(tank_id, batch_id, sampling_id)
-Ref: water_quality_anomaly_contributors.(tank_id, detection_id) > water_quality_anomaly_detection_history.(tank_id, detection_id)
 Ref: mortality_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 Ref: harvest_records.(tank_id, batch_id) > batches.(tank_id, batch_id)
 

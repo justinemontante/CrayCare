@@ -12,6 +12,8 @@ class ConnectivityService extends ChangeNotifier {
   StreamSubscription<ConnectivityResult>? _subscription;
   Timer? _verificationTimer;
   bool _verificationInProgress = false;
+  bool _verificationQueued = false;
+  Completer<void>? _verificationCompleter;
   bool _initialized = false;
   bool _initialConnectivityCheckComplete = false;
 
@@ -38,10 +40,8 @@ class ConnectivityService extends ChangeNotifier {
     try {
       _isOnline = await _checkConnectivity();
       _initialConnectivityCheckComplete = true;
-      _subscription = _connectivity.onConnectivityChanged.listen((
-        ConnectivityResult result,
-      ) async {
-        await _refreshStatus(networkResult: result);
+      _subscription = _connectivity.onConnectivityChanged.listen((_) async {
+        await _refreshStatus();
       });
 
       // A Wi-Fi/mobile connection can remain enabled even after its internet
@@ -72,17 +72,40 @@ class ConnectivityService extends ChangeNotifier {
   }
 
   Future<bool> _hasInternetAccess() async {
+    // Some networks block Google's connectivity-check host while allowing
+    // Firebase traffic. Probe both paths in parallel and consider the device
+    // online when either endpoint responds. A captive portal's HTTP 200 page
+    // is not accepted as a successful Google 204 response.
+    final results = await Future.wait([
+      _probeInternetEndpoint(
+        Uri.parse('https://clients3.google.com/generate_204'),
+        acceptResponse: (status) => status == HttpStatus.noContent,
+      ),
+      _probeInternetEndpoint(
+        Uri.parse('https://firestore.googleapis.com/'),
+        // The API root normally returns 404 without a resource path. That is
+        // still proof that the app can reach Firebase over the internet.
+        // Avoid treating a captive portal's 200/redirect page as online.
+        acceptResponse: (status) => status >= 400 && status < 600,
+      ),
+    ]);
+    return results.any((reachable) => reachable);
+  }
+
+  Future<bool> _probeInternetEndpoint(
+    Uri uri, {
+    required bool Function(int statusCode) acceptResponse,
+  }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
     try {
       final request = await client
-          .getUrl(Uri.parse('https://clients3.google.com/generate_204'))
+          .getUrl(uri)
           .timeout(const Duration(seconds: 2));
       final response = await request.close().timeout(
         const Duration(seconds: 2),
       );
       await response.drain<void>();
-      return response.statusCode == HttpStatus.noContent ||
-          (response.statusCode >= 200 && response.statusCode < 400);
+      return acceptResponse(response.statusCode);
     } on Object {
       return false;
     } finally {
@@ -90,45 +113,61 @@ class ConnectivityService extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshStatus({ConnectivityResult? networkResult}) async {
-    if (_verificationInProgress) return;
+  Future<void> _refreshStatus() async {
+    if (_verificationInProgress) {
+      // Don't drop a resume check or a newer network event while a previous
+      // probe is still running. The queued pass re-reads the current route.
+      _verificationQueued = true;
+      await _verificationCompleter?.future;
+      return;
+    }
     _verificationInProgress = true;
+    final completer = Completer<void>();
+    _verificationCompleter = completer;
     try {
-      final hasNetwork = networkResult != null
-          ? networkResult != ConnectivityResult.none
-          : await _connectivity.checkConnectivity() != ConnectivityResult.none;
-      var isOnline = hasNetwork && await _hasInternetAccess();
-      // Mobile/Wi-Fi can briefly report a route before internet access is
-      // ready again after the phone wakes. Confirm a failed probe once before
-      // exposing an offline state; a successful probe still returns at once.
-      if (hasNetwork && !isOnline) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        final stillHasNetwork = networkResult != null
-            ? networkResult != ConnectivityResult.none
-            : await _connectivity.checkConnectivity() !=
-                  ConnectivityResult.none;
-        if (stillHasNetwork) isOnline = await _hasInternetAccess();
-      }
-      if (isOnline == _isOnline) return;
+      do {
+        _verificationQueued = false;
+        // Read the current route instead of trusting a potentially stale
+        // stream event (for example, one emitted during device wake-up).
+        final hasNetwork =
+            await _connectivity.checkConnectivity() != ConnectivityResult.none;
+        var isOnline = hasNetwork && await _hasInternetAccess();
+        // Mobile/Wi-Fi can briefly report a route before internet access is
+        // ready again after the phone wakes. Confirm a failed probe once before
+        // exposing an offline state; a successful probe still returns at once.
+        if (!isOnline) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          final stillHasNetwork =
+              await _connectivity.checkConnectivity() !=
+              ConnectivityResult.none;
+          if (stillHasNetwork) isOnline = await _hasInternetAccess();
+        }
+        if (isOnline != _isOnline) {
+          final wasOffline = !_isOnline;
+          _isOnline = isOnline;
+          notifyListeners();
 
-      final wasOffline = !_isOnline;
-      _isOnline = isOnline;
-      notifyListeners();
-
-      if (wasOffline && isOnline) {
-        debugPrint(
-          '[ConnectivityService] Internet restored — triggering refresh callbacks',
-        );
-        for (final callback in List.of(_onConnectCallbacks)) {
-          try {
-            callback();
-          } catch (e) {
-            debugPrint('[ConnectivityService] Callback error: $e');
+          if (wasOffline && isOnline) {
+            debugPrint(
+              '[ConnectivityService] Internet restored — triggering refresh callbacks',
+            );
+            for (final callback in List.of(_onConnectCallbacks)) {
+              try {
+                callback();
+              } catch (e) {
+                debugPrint('[ConnectivityService] Callback error: $e');
+              }
+            }
           }
         }
-      }
+      } while (_verificationQueued);
     } finally {
       _verificationInProgress = false;
+      if (identical(_verificationCompleter, completer)) {
+        _verificationCompleter = null;
+      }
+      if (!completer.isCompleted) completer.complete();
+      if (_verificationQueued) unawaited(_refreshStatus());
     }
   }
 
@@ -144,6 +183,8 @@ class ConnectivityService extends ChangeNotifier {
     _verificationTimer?.cancel();
     _verificationTimer = null;
     _verificationInProgress = false;
+    _verificationQueued = false;
+    _verificationCompleter = null;
     _initialized = false;
     _initialConnectivityCheckComplete = false;
     _onConnectCallbacks.clear();

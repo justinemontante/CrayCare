@@ -268,7 +268,7 @@ class SensorService extends ChangeNotifier {
     return 'OPTIMAL';
   }
 
-  /// Used by the home-screen anomaly summary. Dashboard cards deliberately do
+  /// Used by the home-screen sensor summary. Dashboard cards deliberately do
   /// not render this value as an increasing/decreasing indicator.
   double getTrendRate(String key) {
     final values = _history[key];
@@ -583,7 +583,8 @@ class SensorService extends ChangeNotifier {
       case 'do':
         return value >= 0 && value <= 15;
       case 'turb':
-        return value >= 0 && value <= 500;
+        // Keep the live-display ceiling aligned with the ESP32 NTU_MAX.
+        return value >= 0 && value <= 1000;
       case 'waterlevel':
         return value >= 0 && value <= 300;
       case 'feedlevel':
@@ -618,7 +619,7 @@ class SensorService extends ChangeNotifier {
   final Map<String, DateTime> _dayCachedAt = {};
   final Map<String, Future<void>> _historyCacheWrites = {};
   static const _todayCacheTtl = Duration(seconds: 60);
-  static const _historicalCacheTtl = Duration(hours: 12);
+  static const _historicalCacheTtl = Duration(days: 30);
   static const _cacheTimestampSecondsKey = '__analytics_timestamp_seconds';
   static const _cacheTimestampNanosKey = '__analytics_timestamp_nanoseconds';
   static const _cacheDateTimeMillisKey = '__analytics_datetime_millis';

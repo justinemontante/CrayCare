@@ -5,7 +5,7 @@ These changes are source changes, not evidence of a production deployment or a h
 ## Rollout order
 
 1. Coordinate flashing `esp32dev_main` with deploying `notifications:onSensorIngestionWrite` and `notifications:onSensorIngestionHistoryCreate`. The updated ingestion functions require capture-bound owner/tank/assignment metadata; old firmware payloads will not route. Preserve and review quarantined legacy staging records instead of guessing ownership. Verify new readings arrive in the correct tank before resuming operation.
-2. Deploy `notifications:onFeederLogCreate` and `ml:run_hourly_wqad`, and install the updated Flutter app. The feeder trigger reconciles date-scoped outcomes even when notification preferences are disabled. A Flutter hot reload does not update firmware or cloud functions.
+2. Deploy `notifications:onFeederLogCreate` and install the updated Flutter app. The feeder trigger reconciles date-scoped outcomes even when notification preferences are disabled. A Flutter hot reload does not update firmware or cloud functions. The former WQAD ML code is archived and is not part of the configured functions codebases.
 3. Review existing schedules with unsupported amounts (for example 25 g or 35 g). They are not automatically rewritten. The firmware blocks unsupported doses; the app accepts only 20–200 g in steps of 20 g. Confirm the nominal 20 g-per-cycle estimate with the actual feed and feeder before culture operation.
 
 No Firestore rules/index changes are needed for this patch: device logs use the existing assigned-tank create permission; the Admin SDK reconciles schedule outcomes. The DBML and both Firestore schema documents describe the new fields. The `.dbdiagram` file stores only diagram layout and has no field definitions to migrate.

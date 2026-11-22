@@ -1,7 +1,7 @@
 # Add Schedule / Toggle → "not authenticated"
 
 ## Diagnosis (verified, not a guess)
-That string is thrown in exactly one place — `functions/notifications/feeder_schedule_mutation.js:60`:
+That string is thrown in exactly one place — `functions/backend/feeding/feeder_schedule_mutation.js:60`:
 ```js
 if (!uid) throw new ScheduleMutationError("unauthenticated", "Sign in before changing schedules.");
 ```
@@ -14,7 +14,7 @@ end-to-end (`ADD → {"scheduleId":"gen1"}`, `TOGGLE off/on` correct); only genu
 ## The fix already exists in main — you just haven't shipped it
 `git log -S"idToken"` on BOTH sides returns one commit only: `531431b` (Sep 11 10:18AM).
 - client `lib/services/feeder_service.dart:836` → `.call({...payload, 'idToken': idToken})`
-- callable `functions/notifications/feeder_schedules.js` → `admin.auth().verifyIdToken(data.idToken)` fallback
+- callable `functions/backend/feeding/feeder_schedules.js` → `admin.auth().verifyIdToken(data.idToken)` fallback
 
 Reproduced old vs new (same payload, auth header stripped):
 ```
@@ -50,4 +50,4 @@ Cloud Logging for `mutateFeederSchedule rejected: …` (the fallback logs boolea
 4. Raw exception text leaks to the snackbar: `_toggleSchedule` interpolates `$error` on a `StateError`
    → user sees "Bad state: …" (`_addSchedule` strips only `'Exception: '`). All non-`ScheduleMutationError`
    failures are flattened to `internal` "Could not save the schedule…", so logs are the only signal.
-5. `npm test` in `functions/notifications`: 15 tests pass — zero cover `mutateSchedule`. Nothing caught this.
+5. `npm test` in `functions/backend`: 15 tests pass — zero cover `mutateSchedule`. Nothing caught this.

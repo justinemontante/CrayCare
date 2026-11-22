@@ -23,6 +23,22 @@
           }
         },
         {
+          "client_id": "937626111574-le89a62hgtmg1v3v00vhihuni8b8plnl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.craycare",
+            "certificate_hash": "b369e00deb62dc35305d638661790794ff8c2a40"
+          }
+        },
+        {
+          "client_id": "937626111574-q1vvr7l9a65l2vp6btm8chr2bsbhnuc0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.craycare",
+            "certificate_hash": "26e10a53963c7a1464657bb778b92861b7268d71"
+          }
+        },
+        {
           "client_id": "937626111574-aqqt0g7a23e4s8suppid47jfqha9ntvi.apps.googleusercontent.com",
           "client_type": 3
         }

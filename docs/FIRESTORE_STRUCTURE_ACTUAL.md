@@ -117,14 +117,10 @@ Configured temperature, pH, dissolved-oxygen, and turbidity range violations are
 
 `expires_at` prevents a queued/offline Feed Now write from becoming a fresh physical command after reconnect. `near_schedule_confirmed` records that the owner accepted the app warning; the ESP still applies its device-side schedule-collision guard. The separate physical-button confirmation can confirm that schedule-collision warning only.
 
-### `tanks/{tankId}/water_quality_anomaly_detection_history/{detectionId}`
-**Written for each eligible fresh sensor-history record** by the Python Cloud Function (Admin SDK), after freshness and active-tank validation. Old offline backfill is skipped. The app listens to this history and uses the record with the greatest `processed_at` timestamp as the latest result; no separate `current` document is written. Each record contains `tank_id`, optional `uid`, `status` (`Normal`|`Unusual`|`Insufficient`), `is_anomaly`, `anomaly_score`, `source`, optional `source_recorded_at`, `contributors` (ranked array of `{sensor, value, direction, contribution_score}`), `insight`, `recommendation`, and `processed_at` (Timestamp). A model-backed result also includes `model_metadata` with the algorithm, feature version, training-data origin and time, label-use flag, and decision percentile. The app maps each sensor code to its display label and unit.
+### Legacy: `tanks/{tankId}/water_quality_anomaly_detection_history/{detectionId}`
+This collection contains historical results from the former Python anomaly-detection implementation. Its source, model, reports, and Flutter UI are archived in `archive/water_quality_anomaly_detection_2026-11-10/`. The current app does not listen to this collection, and the active local Firebase Functions configuration does not include its ML codebase. Existing Firestore documents are retained. Historical documents may contain `tank_id`, `uid`, `status`, `is_anomaly`, `anomaly_score`, `source`, `source_recorded_at`, `contributors`, `insight`, `recommendation`, `processed_at`, and optional `model_metadata`.
 
-The former `tanks/{tankId}/water_quality_anomaly_detections` collection is legacy-only: timestamped documents remain readable during transition, while its old `current` document is ignored by the app and no longer updated. Manual diagnostic runs may prune older legacy records; the history trigger does not issue cleanup writes. ML rejects incomplete, negative-sentinel, and non-finite history rows before inference.
-
-The anomaly score is a 0–100 percentile showing how unusual the latest pattern is relative to reference behavior; it is not a water-safety score. Inference needs at least six valid readings spanning 110 minutes in a continuous two-hour window.
-
-`source_recorded_at` (Firestore Timestamp) records the newest reading used for a result. The app treats a result as stale when that source is over 20 minutes old; no current pattern is inferred from old readings. `data_status` is not persisted in the compact result document.
+The former `tanks/{tankId}/water_quality_anomaly_detections` collection is also legacy data. These historical collections are preserved; the new classification collection and prediction schema are not active yet.
 
 ---
 
@@ -179,20 +175,20 @@ Fallback staging for offline-buffered, unassigned, or older-firmware history. Ne
 | `sensorReadingsHistory/{uid}` | Replaced by nested tank history |
 | `feederSchedules`, `feederLogs`, `feederCommands`, `feederStatus`, `feederDispatched` | Legacy flat versions |
 | `deviceModes`, `deviceLogs` | Replaced by nested actuator data |
-| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions` | Replaced by canonical `tanks/{id}/water_quality_anomaly_detection_history`; `water_quality_anomaly_detections` is retained as a legacy read source |
+| `healthRisk/{tankId}`, `tanks/{id}/health_risk/current`, root `mlPredictions`, `tanks/{id}/ml_predictions`, and WQAD collections | Historical/legacy ML data; current classification output is not yet written to Firestore |
 | flat production collections | Replaced by nested batch structure |
 
 ---
 
 ## 🔐 Security rules summary
-- Water Quality Anomaly Detections: owner read only; Admin SDK writer only.
+- Legacy WQAD collections: owner read only; old Admin SDK writes are not part of the current local code configuration.
 - Active owner/admin access checks require `status == active`.
 - `hardware_system/currentOwner` client writes are valid only for an active owner whose tank document has a matching `owner_uid`, or a fully unassigned null/null state.
 - ESP staging/assigned-device access uses the dedicated Firebase Email/Password service account `esp32@craycare.com`. Firestore rules verify both the password provider and exact authenticated email. Keep its rotated password only in the gitignored device `secrets.h`; a future multi-device production rollout should provision a distinct identity/custom claim per physical device.
 
-## Feeder request confirmation and push receipts
+## Feeder request confirmation and push deduplication
 
 - `tanks/{tankId}/feeder_commands/{commandId}` adds `expires_at` (Timestamp). ESP rejects commands older than 60 seconds by `issued_at`, or past the app's `expires_at`, including offline writes committed late. Legacy commands without `expires_at` still use the server-issued 60-second limit.
 - `tanks/{tankId}/feeder/status` adds `command_id` and `status_reason`. `feeder_logs` adds optional `command_id`. Manual UI outcomes must match that request, not a different feed's count increment. An app timeout is unconfirmed, not an authoritative failure log.
 - ESP writes a durable interrupted intent before command acknowledgement or schedule reservation. Reboot recovery reserves the intent's minute and never retries the physical dose. Terminal logs are persisted before cloud status updates.
-- `tanks/{tankId}/feeder_notification_receipts/{logId}` contains `uid`, `push_attempt_claimed_at`. Admin SDK creates it atomically with the deterministic inbox entry before the FCM attempt. Duplicate events do not resend or reset read state. A crash after the claim can lose the push attempt; the inbox remains. This is at-most-once, not guaranteed delivery. Receipts are server-only under existing default-deny rules.
+- Feeder push deduplication uses the server-only `push_attempt_claimed_at` field on the existing `feeder_logs/{logId}` document. The Admin SDK claims the event atomically with the deterministic inbox entry before attempting FCM, so duplicate events do not resend or reset read state. A crash after the claim can lose the push attempt; the inbox remains. This is at-most-once, not guaranteed delivery. No separate receipt collection is used.

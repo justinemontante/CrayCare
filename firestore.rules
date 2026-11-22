@@ -374,6 +374,23 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      // Classification outputs are written only by the trusted backend.
+      // The owner may read the current result and date-grouped history;
+      // client and ESP writes are denied.
+      match /water_quality_classification/{docId} {
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+        allow create, update, delete: if false;
+      }
+      match /water_quality_classification_history/{dateKey} {
+        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+        allow create, update, delete: if false;
+
+        match /entries/{entryId} {
+          allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
+          allow create, update, delete: if false;
+        }
+      }
+
       match /batches/{batchId} {
         allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
         allow write: if isTankOwner(tankId);
@@ -406,13 +423,5 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
-    match /sensorIngestion/current {
-      allow create, update: if isEspSession();
-      allow read, delete: if isAdmin();
-    }
-    match /sensorIngestion/current/history/{doc} {
-      allow create: if isEspSession();
-      allow read, delete: if isAdmin();
-    }
   }
 }

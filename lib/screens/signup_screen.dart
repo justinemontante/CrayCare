@@ -60,7 +60,7 @@ class _SignupScreenState extends State<SignupScreen> {
         if (!mounted) return;
         setState(() {
           _emailError =
-              'This email is already registered. Try signing in instead.';
+              'This email is already registered.\nTry signing in instead.';
           _autovalidateMode = AutovalidateMode.onUserInteraction;
         });
         _formKey.currentState!.validate();
@@ -144,6 +144,7 @@ class _SignupScreenState extends State<SignupScreen> {
         fontSize: 11,
         fontWeight: FontWeight.w600,
       ),
+      errorMaxLines: 2,
     );
   }
 
@@ -261,7 +262,21 @@ class _SignupScreenState extends State<SignupScreen> {
                           controller: _emailController,
                           enabled: !anyLoading,
                           keyboardType: TextInputType.emailAddress,
-                          decoration: _buildInputDecoration('Enter your email'),
+                          decoration: _buildInputDecoration('Enter your email')
+                              .copyWith(
+                                error: _emailError == null
+                                    ? null
+                                    : SizedBox(
+                                        width: double.infinity,
+                                        child: Text(
+                                          _emailError!,
+                                          textAlign: TextAlign.center,
+                                          style: _buildInputDecoration(
+                                            'Enter your email',
+                                          ).errorStyle,
+                                        ),
+                                      ),
+                              ),
                           onChanged: (value) {
                             if (_emailError != null) {
                               setState(() {
@@ -278,9 +293,6 @@ class _SignupScreenState extends State<SignupScreen> {
                               r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
                             ).hasMatch(value.trim())) {
                               return 'Please enter a valid email address';
-                            }
-                            if (_emailError != null) {
-                              return _emailError;
                             }
                             return null;
                           },
@@ -303,12 +315,39 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        TextFormField(
-                          controller: _passwordController,
-                          enabled: !anyLoading,
-                          obscureText: _obscurePassword,
-                          decoration: _buildInputDecoration('Create a password')
-                              .copyWith(
+                        FormField<String>(
+                          initialValue: _passwordController.text,
+                          validator: (value) {
+                            final text = _passwordController.text;
+                            if (text.isEmpty) {
+                              return 'Password is required';
+                            }
+                            if (text.length < 8) {
+                              return 'Password must be at least 8 characters';
+                            }
+                            if (!RegExp(r'\d').hasMatch(text)) {
+                              return 'Password must include at least one number';
+                            }
+                            if (!RegExp(r'[^A-Za-z0-9\s]').hasMatch(text)) {
+                              return 'Password must include at least\none special character';
+                            }
+                            return null;
+                          },
+                          builder: (FormFieldState<String> state) {
+                            return TextField(
+                              controller: _passwordController,
+                              enabled: !anyLoading,
+                              obscureText: _obscurePassword,
+                              onChanged: (val) {
+                                state.didChange(val);
+                              },
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: AppColors.dark,
+                              ),
+                              decoration:
+                                  _buildInputDecoration('Create a password')
+                                      .copyWith(
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _obscurePassword
@@ -321,20 +360,21 @@ class _SignupScreenState extends State<SignupScreen> {
                                     () => _obscurePassword = !_obscurePassword,
                                   ),
                                 ),
+                                error: state.hasError
+                                    ? SizedBox(
+                                        width: double.infinity,
+                                        child: Text(
+                                          state.errorText!,
+                                          textAlign: TextAlign.center,
+                                          style: _buildInputDecoration(
+                                            'Create a password',
+                                          ).errorStyle,
+                                        ),
+                                      )
+                                    : null,
                               ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Password is required';
-                            }
-                            if (value.length < 6) {
-                              return 'Password must be at least 6 characters';
-                            }
-                            return null;
+                            );
                           },
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppColors.dark,
-                          ),
                         ),
                         const SizedBox(height: 18),
                         GradientButton(
