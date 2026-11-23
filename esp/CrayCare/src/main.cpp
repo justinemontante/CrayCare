@@ -1483,7 +1483,9 @@ static bool writeHistoryCheckpointFilesIn(fs::FS& fs, const char* pathA,
                                           const char* pathB, const char* tmpA,
                                           const char* tmpB,
                                           const PersistedHistoryState& state) {
-  HistoryCheckpointFile a{}, b{};
+  static HistoryCheckpointFile a, b, record, verify;
+  memset(&a, 0, sizeof(a));
+  memset(&b, 0, sizeof(b));
   const bool validA = readHistoryCheckpointFile(fs, pathA, a);
   const bool validB = readHistoryCheckpointFile(fs, pathB, b);
   uint32_t latest = 0;
@@ -1494,7 +1496,7 @@ static bool writeHistoryCheckpointFilesIn(fs::FS& fs, const char* pathA,
   const char* target = writeA ? pathA : pathB;
   const char* temp = writeA ? tmpA : tmpB;
 
-  HistoryCheckpointFile record{};
+  memset(&record, 0, sizeof(record));
   record.magic = HISTORY_FILE_MAGIC;
   record.version = HISTORY_FILE_VERSION;
   record.sequence = next;
@@ -1509,7 +1511,7 @@ static bool writeHistoryCheckpointFilesIn(fs::FS& fs, const char* pathA,
   const bool writeOk = written == sizeof(record) && out.size() == sizeof(record);
   out.close();
   if (!writeOk) { fs.remove(temp); return false; }
-  HistoryCheckpointFile verify{};
+  memset(&verify, 0, sizeof(verify));
   if (!readHistoryCheckpointFile(fs, temp, verify) || verify.sequence != next) {
     fs.remove(temp);
     return false;
@@ -1538,13 +1540,15 @@ static bool writeHistoryCheckpointFiles(const PersistedHistoryState& state) {
 static bool loadHistoryCheckpointFiles(PersistedHistoryState& state,
                                        int64_t& savedAtMs) {
   bool found = false;
-  HistoryCheckpointFile newest{};
+  static HistoryCheckpointFile newest, candidate;
+  memset(&newest, 0, sizeof(newest));
   auto inspect = [&](fs::FS& fs, const char* pathA, const char* pathB) {
-    HistoryCheckpointFile candidate{};
+    memset(&candidate, 0, sizeof(candidate));
     if (readHistoryCheckpointFile(fs, pathA, candidate) &&
         (!found || candidate.savedAtMs > newest.savedAtMs)) {
       newest = candidate; found = true;
     }
+    memset(&candidate, 0, sizeof(candidate));
     if (readHistoryCheckpointFile(fs, pathB, candidate) &&
         (!found || candidate.savedAtMs > newest.savedAtMs)) {
       newest = candidate; found = true;
@@ -1572,7 +1576,8 @@ bool writeHistoryState(PersistedHistoryState& state) {
 }
 
 bool saveHistoryWindowCheckpoint() {
-  PersistedHistoryState next = persistedHistoryState;
+  static PersistedHistoryState next;
+  next = persistedHistoryState;
   {
     MutexGuard sensorLock(sensorStateMutex);
     next.nextSlotEndEpoch = nextHistorySlotEndEpoch;
@@ -1605,7 +1610,10 @@ void resetWindowAggregates();
 void resetWindowAggregatesUnlocked();
 
 bool loadHistoryWindowCheckpoint() {
-  PersistedHistoryState nvsState{};
+  static PersistedHistoryState nvsState;
+  static PersistedHistoryState fileState;
+  static PersistedHistoryState loaded;
+  memset(&nvsState, 0, sizeof(nvsState));
   int64_t nvsSavedAtMs = 0;
   if (!historyPrefs.begin("histwin", true)) return false;
   const size_t length = historyPrefs.isKey("state")
@@ -1618,12 +1626,13 @@ bool loadHistoryWindowCheckpoint() {
       nvsState.magic == HISTORY_STATE_MAGIC &&
       nvsState.version == HISTORY_STATE_VERSION &&
       nvsState.checksum == historyStateChecksum(nvsState);
-  PersistedHistoryState fileState{};
+  memset(&fileState, 0, sizeof(fileState));
   int64_t fileSavedAtMs = 0;
   const bool fileValid = loadHistoryCheckpointFiles(fileState, fileSavedAtMs);
   if (!nvsValid && !fileValid) return false;
   const bool useFile = fileValid && (!nvsValid || fileSavedAtMs > nvsSavedAtMs);
-  PersistedHistoryState loaded = useFile ? fileState : nvsState;
+  if (useFile) loaded = fileState;
+  else loaded = nvsState;
   persistedHistoryState = loaded;
   nextHistorySlotEndEpoch = static_cast<time_t>(loaded.nextSlotEndEpoch);
   const bool assignmentKnown = hasCurrentTankAssignment();
