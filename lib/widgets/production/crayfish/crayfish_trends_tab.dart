@@ -47,6 +47,23 @@ class _TrendsTabState extends State<TrendsTab> {
     return nice * magnitude;
   }
 
+  /// Rounds (maxValue * headroom) / tickCount up to a readable whole integer step,
+  /// guaranteeing headroom so top data labels on bars are never clipped.
+  double _niceIntegerStep(double maxValue, {int tickCount = 4, double headroom = 1.18}) {
+    final target = maxValue <= 0 ? 1.0 : maxValue * headroom;
+    final raw = target / tickCount;
+    if (raw <= 1) return 1.0;
+    final magnitude = pow(10, (log(raw) / ln10).floor()).toDouble();
+    final normalized = raw / magnitude;
+    const niceMultipliers = <double>[1, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10];
+    final mult = niceMultipliers.firstWhere(
+      (m) => m >= normalized,
+      orElse: () => 10,
+    );
+    final step = (mult * magnitude).ceilToDouble();
+    return step < 1 ? 1.0 : step;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -969,9 +986,7 @@ class _TrendsTabState extends State<TrendsTab> {
     final fcr = biomassGain > 0 ? totalFeed / biomassGain : null;
 
     final maxVal = chartData.isNotEmpty ? chartData.reduce(max) : 0.0;
-    final effectiveMax = maxVal == 0 ? 1.0 : maxVal;
-    final rawStep = (effectiveMax / 4).ceilToDouble();
-    final step = rawStep < 1 ? 1.0 : rawStep;
+    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.18);
     final chartMaxY = step * 4;
     final yLabels = [0.0, step, step * 2, step * 3, step * 4];
 
@@ -1144,7 +1159,7 @@ class _TrendsTabState extends State<TrendsTab> {
           enabled: false,
           touchTooltipData: BarTouchTooltipData(
             fitInsideHorizontally: true,
-            fitInsideVertically: true,
+            fitInsideVertically: false,
             tooltipPadding: EdgeInsets.zero,
             tooltipMargin: 3,
             tooltipBorder: BorderSide.none,
@@ -1261,9 +1276,7 @@ class _TrendsTabState extends State<TrendsTab> {
     final maxVal = dailyEntries.isNotEmpty
         ? dailyEntries.map((e) => e.count.toDouble()).reduce(max)
         : 0.0;
-    final effectiveMax = maxVal == 0 ? 1.0 : maxVal;
-    final rawStep = (effectiveMax / 4).ceilToDouble();
-    final step = rawStep < 1 ? 1.0 : rawStep;
+    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.18);
     final chartMaxY = step * 4;
     final yLabels = [0.0, step, step * 2, step * 3, step * 4];
 
@@ -1448,7 +1461,7 @@ class _TrendsTabState extends State<TrendsTab> {
           enabled: false,
           touchTooltipData: BarTouchTooltipData(
             fitInsideHorizontally: true,
-            fitInsideVertically: true,
+            fitInsideVertically: false,
             tooltipPadding: EdgeInsets.zero,
             tooltipMargin: 3,
             tooltipBorder: BorderSide.none,
