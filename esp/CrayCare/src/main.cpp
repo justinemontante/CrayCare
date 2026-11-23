@@ -487,8 +487,33 @@ size_t countBufferedEntries() {
   return n;
 }
 
+String firestoreTimestampString(time_t seconds);
+static bool bufferContainsCapture(long long capturedAtMs);
+
+// Firestore history folders use a fixed UTC+8 (Manila) calendar date. Store
+// that exact key with every queued row so SD retention and upload routing can
+// never disagree, even across a reboot or an NTP resync.
+static bool manilaDateKeyFromMs(long long capturedAtMs, char* out, size_t outLen) {
+  if (capturedAtMs < 1577836800000LL || out == nullptr || outLen < 11) return false;
+  const time_t capturedAt = static_cast<time_t>(capturedAtMs / 1000LL);
+  const time_t manilaEpoch = capturedAt + 8 * 60 * 60;
+  struct tm manilaTm;
+  if (gmtime_r(&manilaEpoch, &manilaTm) == nullptr) return false;
+  return strftime(out, outLen, "%Y-%m-%d", &manilaTm) == 10;
+}
+
+static bool isHistoryDateKey(const String& token) {
+  if (token.length() != 10 || token[4] != '-' || token[7] != '-') return false;
+  for (int i = 0; i < 10; ++i) {
+    if (i == 4 || i == 7) continue;
+    if (token[i] < '0' || token[i] > '9') return false;
+  }
+  return true;
+}
+
 bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
   if (jsonLine.length() < 10) return false;
+  if (capturedAtMs > 0 && bufferContainsCapture(capturedAtMs)) return true;
   fs::FS& fs = bufFS();
   if (!sdMounted && !littlefsMounted) return false;
   if (!sdMounted && !LittleFS.exists(BUFFER_PATH)) {
@@ -498,15 +523,33 @@ bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
   }
   File f = fs.open(bufPath(), FILE_APPEND);
   if (!f) return false;
-  // Keep the deterministic history key beside the JSON in the device-local
-  // queue. This prefix is stripped before upload, so it is never a Firestore
-  // field. Older buffered rows without the prefix remain supported below.
+  // Canonical v2 row:
+  //   @<captureMs>\t<Manila YYYY-MM-DD>\t[<recordedAtZ>\t]<Firestore JSON>
+  // The explicit day key is the same folder date used on upload. Older rows
+  // without it are still parsed by uploadBufferedEntry().
   String queuedLine = jsonLine;
   if (capturedAtMs > 0) {
+    String recordedAt;
+    FirebaseJson payload;
+    FirebaseJsonData field;
+    if (payload.setJsonData(jsonLine) &&
+        payload.get(field, "fields/recorded_at/timestampValue")) {
+      recordedAt = field.stringValue;
+    }
+    if (recordedAt.isEmpty() && capturedAtMs >= 1577836800000LL) {
+      recordedAt = firestoreTimestampString(
+          static_cast<time_t>(capturedAtMs / 1000LL));
+    }
     char prefix[32];
     snprintf(prefix, sizeof(prefix), "@%llu\t",
              static_cast<unsigned long long>(capturedAtMs));
-    queuedLine = String(prefix) + jsonLine;
+    queuedLine = String(prefix);
+    char dateKey[11] = {0};
+    if (manilaDateKeyFromMs(capturedAtMs, dateKey, sizeof(dateKey))) {
+      queuedLine += String(dateKey) + "\t";
+    }
+    if (!recordedAt.isEmpty()) queuedLine += recordedAt + "\t";
+    queuedLine += jsonLine;
   }
   const size_t previousSize = f.size();
   const size_t written = f.println(queuedLine);
@@ -515,6 +558,28 @@ bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
       f.size() >= previousSize + queuedLine.length() + 1;
   f.close();
   return writeOk;
+}
+
+static bool bufferContainsCaptureIn(fs::FS& fs, const char* path,
+                                    long long capturedAtMs) {
+  if (capturedAtMs <= 0 || !fs.exists(path)) return false;
+  File f = fs.open(path, "r");
+  if (!f) return false;
+  char prefix[32];
+  snprintf(prefix, sizeof(prefix), "@%llu\t",
+           static_cast<unsigned long long>(capturedAtMs));
+  bool found = false;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    if (line.startsWith(prefix)) { found = true; break; }
+  }
+  f.close();
+  return found;
+}
+
+static bool bufferContainsCapture(long long capturedAtMs) {
+  return (sdMounted && bufferContainsCaptureIn(SD, SD_BUFFER_PATH, capturedAtMs)) ||
+         (littlefsMounted && bufferContainsCaptureIn(LittleFS, BUFFER_PATH, capturedAtMs));
 }
 
 // Drop exactly the first valid line while preserving the entire backlog.
@@ -591,15 +656,40 @@ size_t bufferReadAll(String* lines, size_t maxLines, bool* fromSd = nullptr) {
 String getHardwareId();
 String firestoreTimestampString(time_t seconds);
 static bool uploadBufferedEntry(const String& queuedLine) {
-  // Deterministic doc ID from local queue metadata. The metadata is not part
-  // of the Firestore payload. Old buffer rows used captured_at_ms in their
-  // payload, so retain that parser for rows queued by previous firmware.
+  // Metadata is not part of the Firestore payload. Accept v2 dated rows,
+  // previous @<millis>\t<timestamp>\t<json> rows, bare @<millis> rows, and
+  // legacy captured_at_ms-only payloads.
   long long capMs = 0;
+  String queuedRecordedAt;
+  String storedManilaDate;
   String payloadLine = queuedLine;
   int separator = payloadLine.indexOf('\t');
   if (payloadLine.startsWith("@") && separator > 1) {
     capMs = atoll(payloadLine.substring(1, separator).c_str());
     payloadLine = payloadLine.substring(separator + 1);
+    const int metadataEnd = payloadLine.indexOf('\t');
+    if (metadataEnd > 0) {
+      const String metadata = payloadLine.substring(0, metadataEnd);
+      if (isHistoryDateKey(metadata)) {
+        storedManilaDate = metadata;
+        payloadLine = payloadLine.substring(metadataEnd + 1);
+      } else if (metadata.startsWith("20") && metadata.indexOf('T') > 0 &&
+                 metadata.endsWith("Z")) {
+        queuedRecordedAt = metadata;
+        payloadLine = payloadLine.substring(metadataEnd + 1);
+      }
+    }
+    if (storedManilaDate.length() > 0) {
+      const int recordedEnd = payloadLine.indexOf('\t');
+      if (recordedEnd > 0) {
+        const String candidate = payloadLine.substring(0, recordedEnd);
+        if (candidate.startsWith("20") && candidate.indexOf('T') > 0 &&
+            candidate.endsWith("Z")) {
+          queuedRecordedAt = candidate;
+          payloadLine = payloadLine.substring(recordedEnd + 1);
+        }
+      }
+    }
   }
   int idx = payloadLine.indexOf("\"captured_at_ms\"");
   if (idx >= 0) {
@@ -622,6 +712,12 @@ static bool uploadBufferedEntry(const String& queuedLine) {
   if (payload.get(field, "fields/recorded_at/timestampValue")) {
     recordedAtText = field.stringValue;
     recordedAtMs = firestoreTimestampMillis(recordedAtText);
+  } else if (!queuedRecordedAt.isEmpty()) {
+    recordedAtText = queuedRecordedAt;
+    recordedAtMs = firestoreTimestampMillis(recordedAtText);
+    if (recordedAtMs > 0) {
+      payload.set("fields/recorded_at/timestampValue", recordedAtText);
+    }
   } else if (capMs >= 1577836800000LL) {
     // Very old local rows may have only the capture time in queue metadata.
     recordedAtText = firestoreTimestampString(static_cast<time_t>(capMs / 1000LL));
@@ -699,15 +795,18 @@ static bool uploadBufferedEntry(const String& queuedLine) {
   snprintf(docIdBuffer, sizeof(docIdBuffer), "r_%llu",
            static_cast<unsigned long long>(capturedAtMs));
   String docId(docIdBuffer);
-  const time_t capturedAt = static_cast<time_t>(capturedAtMs / 1000LL);
-  const time_t manilaEpoch = capturedAt + 8 * 60 * 60;
-  struct tm manilaTm;
-  char dateKey[11] = {0};
-  if (gmtime_r(&manilaEpoch, &manilaTm) == nullptr ||
-      strftime(dateKey, sizeof(dateKey), "%Y-%m-%d", &manilaTm) == 0) {
+  char expectedDateKey[11] = {0};
+  if (!manilaDateKeyFromMs(capturedAtMs, expectedDateKey, sizeof(expectedDateKey))) {
     Serial.println("[BUF] Could not resolve capture date — retaining entry");
     return false;
   }
+  if (storedManilaDate.length() > 0 && storedManilaDate != String(expectedDateKey)) {
+    Serial.printf("[BUF] Queued date %s disagrees with capture date %s — retaining entry\n",
+                  storedManilaDate.c_str(), expectedDateKey);
+    return false;
+  }
+  const char* dateKey = storedManilaDate.length() > 0
+      ? storedManilaDate.c_str() : expectedDateKey;
   const String collectionPath = "tanks/" + sourceTankId +
       "/sensor_readings_history/" + dateKey + "/entries";
   const String documentPath = collectionPath + "/" + docId;
@@ -944,11 +1043,13 @@ int gateAngleNow = 0;
 bool gateServoAttached = false;
 
 bool loadRuntimeSettings() {
+  // Boot policy: always request ONLINE after a restart. A missing Wi-Fi link
+  // still leaves networkAvailable=false, so sensing/history buffering/feed
+  // continue locally while the normal reconnect loop retries Wi-Fi. Ignore a
+  // stale OFFLINE mode saved by an earlier manual command; operators can still
+  // force OFFLINE for the current boot with SYSTEM_MODE OFFLINE.
+  systemModeOverride = SYSTEM_MODE_FORCE_ONLINE;
   if (!prefs.begin("runtime", true)) return false;
-  const int savedMode = prefs.isKey("mode")
-      ? prefs.getInt("mode", SYSTEM_MODE_AUTO) : SYSTEM_MODE_AUTO;
-  systemModeOverride = savedMode >= SYSTEM_MODE_AUTO && savedMode <= SYSTEM_MODE_FORCE_ONLINE
-      ? (SystemModeOverride)savedMode : SYSTEM_MODE_AUTO;
   const uint32_t savedDwell = prefs.isKey("gateDwell")
       ? prefs.getUInt("gateDwell", GATE_CLOSE_DWELL_MS_DEFAULT)
       : GATE_CLOSE_DWELL_MS_DEFAULT;
@@ -1293,6 +1394,19 @@ PersistedHistoryState persistedHistoryState{};
 bool historyWindowRecovered = false;
 unsigned long lastHistoryCheckpointMs = 0;
 
+// A mirrored two-slot filesystem checkpoint protects the active 10-minute
+// window when NVS is full. One slot remains valid while the other is written.
+struct HistoryCheckpointFile {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t sequence;
+  int64_t savedAtMs;
+  PersistedHistoryState state;
+  uint32_t checksum;
+};
+constexpr uint32_t HISTORY_FILE_MAGIC = 0x43524648; // "CRFH"
+constexpr uint32_t HISTORY_FILE_VERSION = 1;
+
 struct HistoryWindowSnapshot {
   int64_t capturedAtMs;
   int64_t assignmentAtMs;
@@ -1328,12 +1442,126 @@ uint32_t historyStateChecksum(const PersistedHistoryState& state) {
   return hash;
 }
 
+static int64_t historyCheckpointNowMs() {
+  time_t now = 0;
+  time(&now);
+  return now >= 1577836800 ? static_cast<int64_t>(now) * 1000LL + millis() % 1000UL
+                           : static_cast<int64_t>(millis());
+}
+
+static uint32_t historyFileChecksum(const HistoryCheckpointFile& record) {
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&record);
+  uint32_t hash = 2166136261UL;
+  for (size_t i = 0; i < offsetof(HistoryCheckpointFile, checksum); ++i) {
+    hash = (hash ^ bytes[i]) * 16777619UL;
+  }
+  return hash;
+}
+
+static bool readHistoryCheckpointFile(fs::FS& fs, const char* path,
+                                     HistoryCheckpointFile& record) {
+  if (!fs.exists(path)) return false;
+  File f = fs.open(path, "r");
+  if (!f) return false;
+  const bool readOk = f.size() == sizeof(record) &&
+      f.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) == sizeof(record);
+  f.close();
+  return readOk && record.magic == HISTORY_FILE_MAGIC &&
+      record.version == HISTORY_FILE_VERSION &&
+      record.state.magic == HISTORY_STATE_MAGIC &&
+      record.state.version == HISTORY_STATE_VERSION &&
+      record.state.checksum == historyStateChecksum(record.state) &&
+      record.checksum == historyFileChecksum(record);
+}
+
+static bool writeHistoryCheckpointFilesIn(fs::FS& fs, const char* pathA,
+                                          const char* pathB, const char* tmpA,
+                                          const char* tmpB,
+                                          const PersistedHistoryState& state) {
+  HistoryCheckpointFile a{}, b{};
+  const bool validA = readHistoryCheckpointFile(fs, pathA, a);
+  const bool validB = readHistoryCheckpointFile(fs, pathB, b);
+  uint32_t latest = 0;
+  if (validA && (!validB || static_cast<int32_t>(a.sequence - b.sequence) > 0)) latest = a.sequence;
+  else if (validB) latest = b.sequence;
+  const uint32_t next = latest + 1;
+  const bool writeA = (next & 1U) != 0;
+  const char* target = writeA ? pathA : pathB;
+  const char* temp = writeA ? tmpA : tmpB;
+
+  HistoryCheckpointFile record{};
+  record.magic = HISTORY_FILE_MAGIC;
+  record.version = HISTORY_FILE_VERSION;
+  record.sequence = next;
+  record.savedAtMs = historyCheckpointNowMs();
+  record.state = state;
+  record.checksum = historyFileChecksum(record);
+  if (fs.exists(temp)) fs.remove(temp);
+  File out = fs.open(temp, "w");
+  if (!out) return false;
+  const size_t written = out.write(reinterpret_cast<const uint8_t*>(&record), sizeof(record));
+  out.flush();
+  const bool writeOk = written == sizeof(record) && out.size() == sizeof(record);
+  out.close();
+  if (!writeOk) { fs.remove(temp); return false; }
+  HistoryCheckpointFile verify{};
+  if (!readHistoryCheckpointFile(fs, temp, verify) || verify.sequence != next) {
+    fs.remove(temp);
+    return false;
+  }
+  // The opposite slot remains intact throughout this replace operation.
+  if (fs.exists(target) && !fs.remove(target)) { fs.remove(temp); return false; }
+  if (!fs.rename(temp, target)) { fs.remove(temp); return false; }
+  return true;
+}
+
+static bool writeHistoryCheckpointFiles(const PersistedHistoryState& state) {
+  bool saved = false;
+  if (sdMounted) {
+    saved |= writeHistoryCheckpointFilesIn(SD,
+        "/craycare/history_state_a.bin", "/craycare/history_state_b.bin",
+        "/craycare/history_state_a.tmp", "/craycare/history_state_b.tmp", state);
+  }
+  if (littlefsMounted) {
+    saved |= writeHistoryCheckpointFilesIn(LittleFS,
+        "/buf/history_state_a.bin", "/buf/history_state_b.bin",
+        "/buf/history_state_a.tmp", "/buf/history_state_b.tmp", state);
+  }
+  return saved;
+}
+
+static bool loadHistoryCheckpointFiles(PersistedHistoryState& state,
+                                       int64_t& savedAtMs) {
+  bool found = false;
+  HistoryCheckpointFile newest{};
+  auto inspect = [&](fs::FS& fs, const char* pathA, const char* pathB) {
+    HistoryCheckpointFile candidate{};
+    if (readHistoryCheckpointFile(fs, pathA, candidate) &&
+        (!found || candidate.savedAtMs > newest.savedAtMs)) {
+      newest = candidate; found = true;
+    }
+    if (readHistoryCheckpointFile(fs, pathB, candidate) &&
+        (!found || candidate.savedAtMs > newest.savedAtMs)) {
+      newest = candidate; found = true;
+    }
+  };
+  if (sdMounted) inspect(SD, "/craycare/history_state_a.bin", "/craycare/history_state_b.bin");
+  if (littlefsMounted) inspect(LittleFS, "/buf/history_state_a.bin", "/buf/history_state_b.bin");
+  if (!found) return false;
+  state = newest.state;
+  savedAtMs = newest.savedAtMs;
+  return true;
+}
+
 bool writeHistoryState(PersistedHistoryState& state) {
   state.magic = HISTORY_STATE_MAGIC;
   state.version = HISTORY_STATE_VERSION;
   state.checksum = historyStateChecksum(state);
   if (!historyPrefs.begin("histwin", false)) return false;
   const size_t written = historyPrefs.putBytes("state", &state, sizeof(state));
+  if (written == sizeof(state)) {
+    historyPrefs.putLong64("stamp", historyCheckpointNowMs());
+  }
   historyPrefs.end();
   return written == sizeof(state);
 }
@@ -1357,42 +1585,73 @@ bool saveHistoryWindowCheckpoint() {
       next.assignmentAtMs = currentAssignmentAtMs;
     }
   }
-  if (!writeHistoryState(next)) return false;
+  const bool fileSaved = writeHistoryCheckpointFiles(next);
+  // Use the filesystem as the active checkpoint when available; avoid
+  // rewriting the large NVS blob and exhausting the small NVS partition.
+  const bool nvsSaved = fileSaved || writeHistoryState(next);
+  if (!fileSaved && !nvsSaved) return false;
+  if (!fileSaved && nvsSaved) Serial.println("[HISTORY] Filesystems unavailable; checkpoint saved to NVS fallback");
   persistedHistoryState = next;
   if (hasCurrentTankAssignment()) historyWindowRecovered = false;
   return true;
 }
 
 void resetWindowAggregates();
+void resetWindowAggregatesUnlocked();
 
 bool loadHistoryWindowCheckpoint() {
-  PersistedHistoryState loaded{};
+  PersistedHistoryState nvsState{};
+  int64_t nvsSavedAtMs = 0;
   if (!historyPrefs.begin("histwin", true)) return false;
-  const size_t length = historyPrefs.getBytesLength("state");
-  const size_t read = length == sizeof(loaded)
-      ? historyPrefs.getBytes("state", &loaded, sizeof(loaded)) : 0;
+  const size_t length = historyPrefs.isKey("state")
+      ? historyPrefs.getBytesLength("state") : 0;
+  const size_t read = length == sizeof(nvsState)
+      ? historyPrefs.getBytes("state", &nvsState, sizeof(nvsState)) : 0;
+  nvsSavedAtMs = historyPrefs.isKey("stamp") ? historyPrefs.getLong64("stamp", 0) : 0;
   historyPrefs.end();
-  if (read != sizeof(loaded) || loaded.magic != HISTORY_STATE_MAGIC ||
-      loaded.version != HISTORY_STATE_VERSION ||
-      loaded.checksum != historyStateChecksum(loaded)) {
-    return false;
-  }
+  const bool nvsValid = read == sizeof(nvsState) &&
+      nvsState.magic == HISTORY_STATE_MAGIC &&
+      nvsState.version == HISTORY_STATE_VERSION &&
+      nvsState.checksum == historyStateChecksum(nvsState);
+  PersistedHistoryState fileState{};
+  int64_t fileSavedAtMs = 0;
+  const bool fileValid = loadHistoryCheckpointFiles(fileState, fileSavedAtMs);
+  if (!nvsValid && !fileValid) return false;
+  const bool useFile = fileValid && (!nvsValid || fileSavedAtMs > nvsSavedAtMs);
+  PersistedHistoryState loaded = useFile ? fileState : nvsState;
   persistedHistoryState = loaded;
   nextHistorySlotEndEpoch = static_cast<time_t>(loaded.nextSlotEndEpoch);
   const bool assignmentKnown = hasCurrentTankAssignment();
   const bool sameAssignment = assignmentKnown &&
       currentTankId == loaded.tankId && currentOwnerUid == loaded.ownerUid &&
       currentAssignmentAtMs == loaded.assignmentAtMs;
+  const long long checkpointBoundaryMs = loaded.nextSlotEndEpoch * 1000LL;
+  const bool completedWindowAlreadyQueued = checkpointBoundaryMs > 0 &&
+      bufferContainsCapture(checkpointBoundaryMs);
   if (!assignmentKnown || sameAssignment) {
-    MutexGuard sensorLock(sensorStateMutex);
-    winTempSum = loaded.tempSum; winTempN = loaded.tempN;
-    winTurbSum = loaded.turbSum; winTurbN = loaded.turbN;
-    winDOSum = loaded.doSum; winDON = loaded.doN;
-    winPHSum = loaded.phSum; winPHN = loaded.phN;
-    winWaterLevelSum = loaded.waterLevelSum; winWaterLevelN = loaded.waterLevelN;
-    winFeedLevelSum = loaded.feedLevelSum; winFeedLevelN = loaded.feedLevelN;
+    {
+      MutexGuard sensorLock(sensorStateMutex);
+      if (completedWindowAlreadyQueued) {
+        resetWindowAggregatesUnlocked();
+        nextHistorySlotEndEpoch =
+            (loaded.nextSlotEndEpoch / HISTORY_SLOT_SECONDS + 1) * HISTORY_SLOT_SECONDS;
+        persistedHistoryState.nextSlotEndEpoch = nextHistorySlotEndEpoch;
+      } else {
+        winTempSum = loaded.tempSum; winTempN = loaded.tempN;
+        winTurbSum = loaded.turbSum; winTurbN = loaded.turbN;
+        winDOSum = loaded.doSum; winDON = loaded.doN;
+        winPHSum = loaded.phSum; winPHN = loaded.phN;
+        winWaterLevelSum = loaded.waterLevelSum; winWaterLevelN = loaded.waterLevelN;
+        winFeedLevelSum = loaded.feedLevelSum; winFeedLevelN = loaded.feedLevelN;
+      }
+    }
     historyWindowRecovered = true;
-    Serial.println("[HISTORY] Restored in-progress 10-minute window from NVS");
+    Serial.printf("[HISTORY] Restored active 10-minute checkpoint from %s\n",
+                  useFile ? "filesystem" : "NVS");
+    if (completedWindowAlreadyQueued) {
+      Serial.println("[HISTORY] Queued boundary found; discarded stale pre-reset aggregates to prevent duplicate history");
+      saveHistoryWindowCheckpoint();
+    }
   } else {
     Serial.println("[HISTORY] Discarded checkpoint from a previous tank assignment");
     resetWindowAggregates();
@@ -1413,7 +1672,8 @@ bool clearPendingHistoryCheckpoint() {
 bool queuePendingHistoryIfPossible() {
   if (persistedHistoryState.pendingCapturedAtMs <= 0 ||
       persistedHistoryState.pendingJson[0] == '\0') return true;
-  if (!bufferAppend(String(persistedHistoryState.pendingJson),
+  if (!bufferContainsCapture(persistedHistoryState.pendingCapturedAtMs) &&
+      !bufferAppend(String(persistedHistoryState.pendingJson),
                     persistedHistoryState.pendingCapturedAtMs)) return false;
   if (!clearPendingHistoryCheckpoint()) return false;
   Serial.println("[HISTORY] Recovered pending entry into the offline queue");
@@ -1439,6 +1699,37 @@ bool historyWindowHasSamplesUnlocked() {
       winWaterLevelN > 0 || winFeedLevelN > 0;
 }
 
+void buildHistoryPayloadFromSnapshot(FirebaseJson& json,
+                                     const HistoryWindowSnapshot& window);
+
+// Durable-at-finalize journal. Once this returns true, the exact Firestore
+// payload is already on SD/LittleFS with its Manila date key, so a reboot at
+// any later point still leaves the periodic uploader able to replay it.
+static bool queueCompletedWindowSnapshot(const HistoryWindowSnapshot& window) {
+  const long long capturedMs = window.capturedAtMs;
+  const time_t capturedAt = static_cast<time_t>(capturedMs / 1000LL);
+  if (capturedMs < 1577836800000LL ||
+      firestoreTimestampString(capturedAt).isEmpty()) {
+    return false;
+  }
+  if (bufferContainsCapture(capturedMs)) return true;
+  FirebaseJson content;
+  buildHistoryPayloadFromSnapshot(content, window);
+  const String payload = content.raw();
+  if (payload.length() == 0 || payload.length() > 4096) return false;
+  if (!bufferAppend(payload, capturedMs)) return false;
+  Serial.printf("[HISTORY] Durable capture %s saved; queued entries=%u\n",
+                firestoreTimestampString(capturedAt).c_str(),
+                (unsigned)countBufferedEntries());
+  return true;
+}
+
+static void flushHistoryBeforeRestart() {
+  if (!saveHistoryWindowCheckpoint()) {
+    Serial.println("[HISTORY] Could not checkpoint in-progress window before restart");
+  }
+}
+
 // The caller holds sensorStateMutex. Rotate before adding a sensor sample so
 // samples at/after a fixed boundary belong to the next window.
 void finalizeHistoryWindowIfDueUnlocked(time_t now) {
@@ -1458,30 +1749,43 @@ void finalizeHistoryWindowIfDueUnlocked(time_t now) {
       : scheduledEnd;
 
   if (historyWindowHasSamplesUnlocked()) {
-    if (completedHistoryCount >= HISTORY_READY_QUEUE_CAP) {
+    HistoryWindowSnapshot snapshot{};
+    snapshot.capturedAtMs = atoll(epochMillisString(capturedAt).c_str());
+    snapshot.assignmentAtMs = currentAssignmentAtMs;
+    strlcpy(snapshot.tankId, currentTankId.c_str(), sizeof(snapshot.tankId));
+    strlcpy(snapshot.ownerUid, currentOwnerUid.c_str(), sizeof(snapshot.ownerUid));
+    snapshot.tempSum = winTempSum; snapshot.tempN = winTempN;
+    snapshot.turbSum = winTurbSum; snapshot.turbN = winTurbN;
+    snapshot.doSum = winDOSum; snapshot.doN = winDON;
+    snapshot.phSum = winPHSum; snapshot.phN = winPHN;
+    snapshot.waterLevelSum = winWaterLevelSum; snapshot.waterLevelN = winWaterLevelN;
+    snapshot.feedLevelSum = winFeedLevelSum; snapshot.feedLevelN = winFeedLevelN;
+
+    // Persist before touching RAM state. If the device resets after this
+    // point, the exact Firestore payload is already replayable from disk.
+    if (!queueCompletedWindowSnapshot(snapshot)) {
       const unsigned long ms = millis();
       if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
         lastHistoryQueueFullLogMs = ms;
-        Serial.println("[HISTORY] Completed-window queue is full; retaining current samples and slot for retry.");
+        Serial.println("[HISTORY] Durable queue write failed; retaining samples and slot for retry.");
       }
       return;
     }
 
-    const uint8_t tail = (completedHistoryHead + completedHistoryCount) %
-        HISTORY_READY_QUEUE_CAP;
-    HistoryWindowSnapshot& slot = completedHistoryWindows[tail];
-    memset(&slot, 0, sizeof(slot));
-    slot.capturedAtMs = atoll(epochMillisString(capturedAt).c_str());
-    slot.assignmentAtMs = currentAssignmentAtMs;
-    strlcpy(slot.tankId, currentTankId.c_str(), sizeof(slot.tankId));
-    strlcpy(slot.ownerUid, currentOwnerUid.c_str(), sizeof(slot.ownerUid));
-    slot.tempSum = winTempSum; slot.tempN = winTempN;
-    slot.turbSum = winTurbSum; slot.turbN = winTurbN;
-    slot.doSum = winDOSum; slot.doN = winDON;
-    slot.phSum = winPHSum; slot.phN = winPHN;
-    slot.waterLevelSum = winWaterLevelSum; slot.waterLevelN = winWaterLevelN;
-    slot.feedLevelSum = winFeedLevelSum; slot.feedLevelN = winFeedLevelN;
-    completedHistoryCount++;
+    if (completedHistoryCount < HISTORY_READY_QUEUE_CAP) {
+      const uint8_t tail = (completedHistoryHead + completedHistoryCount) %
+          HISTORY_READY_QUEUE_CAP;
+      completedHistoryWindows[tail] = snapshot;
+      completedHistoryCount++;
+    } else {
+      // The row is already durable; the periodic flush will still replay it
+      // even when the small RAM trigger queue is full.
+      const unsigned long ms = millis();
+      if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
+        lastHistoryQueueFullLogMs = ms;
+        Serial.println("[HISTORY] RAM trigger queue full; durable row already saved.");
+      }
+    }
     resetWindowAggregatesUnlocked();
 
     if (lateByWholeWindow) {
@@ -1999,18 +2303,21 @@ void wifiPromptAndSave() {
   pass = p;
   Serial.printf("[SAVED] Slot %d \"%s\" — restarting...\n", idx, s.c_str());
   delay(1500);
+  flushHistoryBeforeRestart();
   ESP.restart();
 }
 
-bool wifiTryOne(const String &s, const String &p) {
+bool wifiTryOne(const String &s, const String &p,
+                unsigned long waitMs = 10000UL) {
   showLCDBootProgress("Connecting WiFi", 0);
   WiFi.begin(s.c_str(), p.c_str());
   Serial.printf("[WIFI] Trying \"%s\"", s.c_str());
-  for (int i = 0; i < 20; i++) {
+  const int steps = max(1, (int)(waitMs / 500UL));
+  for (int i = 0; i < steps; i++) {
     if (WiFi.status() == WL_CONNECTED) break;
     delay(500);
-    showLCDBootProgress("Connecting WiFi", min(75, (i + 1) * 75 / 20));
-    esp_task_wdt_reset();  // 10 s worst case here; keep the watchdog fed
+    showLCDBootProgress("Connecting WiFi", min(75, (i + 1) * 75 / steps));
+    esp_task_wdt_reset();  // keep the watchdog fed during the wait
     Serial.print(".");
   }
   Serial.println();
@@ -2022,6 +2329,45 @@ bool wifiTryOne(const String &s, const String &p) {
     showLCDBoot("WiFi failed", "Trying next...", 900);
   }
   return WiFi.status() == WL_CONNECTED;
+}
+
+// Local/offline mode must not just sit on a connected-but-useless AP. Sweep
+// every saved profile when cloud access is unavailable, unless a physical
+// calibration or feeder action owns the loop right now.
+static bool localModeNeedsProfileSweep(bool wifiConnected) {
+  if (!wifiConnected || calibrationMode || feederRunState != FEEDER_IDLE) return false;
+  if (cloudModeForcedOffline() || cloudOutage) return true;
+  if (firebaseStarted && firebaseAuthAttemptFailed) return true;
+  if (cloudBootstrapComplete && !hasCurrentTankAssignment()) return true;
+  return false;
+}
+
+static bool wifiSweepAllProfiles(bool startAtZero, unsigned long perProfileWaitMs) {
+  const int n = wifiProfileCount();
+  if (n <= 0) return false;
+  const int active = wifiActiveIndex();
+  const int start = startAtZero ? 0 : (active >= 0 && active < n ? active : 0);
+  for (int k = 0; k < n; ++k) {
+    const int idx = (start + k) % n;
+    String candidateSsid, candidatePass;
+    wifiGetProfile(idx, candidateSsid, candidatePass);
+    if (candidateSsid.length() == 0) continue;
+    esp_task_wdt_reset();
+    Serial.printf("[WIFI] Local-mode sweep %d/%d \"%s\"...\n",
+                  idx + 1, n, candidateSsid.c_str());
+    WiFi.disconnect(false, false);
+    delay(100);
+    esp_task_wdt_reset();
+    if (!wifiTryOne(candidateSsid, candidatePass, perProfileWaitMs)) continue;
+    ssid = candidateSsid;
+    pass = candidatePass;
+    wifiSetActive(idx);
+    Serial.printf("[WIFI] Sweep connected to slot %d \"%s\".\n",
+                  idx + 1, candidateSsid.c_str());
+    return true;
+  }
+  Serial.println("[WIFI] Local-mode sweep found no usable saved profile.");
+  return false;
 }
 
 void wifiListProfiles() {
@@ -2604,124 +2950,46 @@ bool sendLatestToFirestore() {
 // fails, keep the payload in the durable local queue; the uploader will retry
 // only while its captured assignment still matches the current assignment.
 bool sendHistoryToFirestore(const HistoryWindowSnapshot& window) {
-  if (persistedHistoryState.pendingCapturedAtMs > 0) {
-    Serial.println("[HISTORY] Previous entry still pending; completed window remains queued");
-    return false;
-  }
-
-  // Persist the immutable completed-window payload before network I/O. The
-  // sensor task has already started accumulating the next slot independently.
-  FirebaseJson content;
+  // finalizeHistoryWindowIfDueUnlocked() already wrote this exact payload to
+  // the durable queue before advancing the window. Only rebuild/re-append for
+  // snapshots restored by older code paths; bufferAppend() dedupes by capture
+  // time, so retries can never create a second row or document.
   const long long capturedMs = window.capturedAtMs;
-  const time_t capturedAt = static_cast<time_t>(capturedMs / 1000);
-  buildHistoryPayloadFromSnapshot(content, window);
-  const String payload = content.raw();
-  if (payload.length() == 0 || payload.length() >= HISTORY_PENDING_JSON_CAP) {
-    Serial.println("[HISTORY] Could not persist completed window: payload exceeds local checkpoint capacity");
+  const time_t capturedAt = static_cast<time_t>(capturedMs / 1000LL);
+  if (capturedMs < 1577836800000LL ||
+      firestoreTimestampString(capturedAt).isEmpty()) {
+    Serial.println("[HISTORY] Missing valid capture date; keeping completed window for retry");
     return false;
   }
-
-  PersistedHistoryState next = persistedHistoryState;
-  next.pendingCapturedAtMs = capturedMs;
-  strlcpy(next.pendingJson, payload.c_str(), sizeof(next.pendingJson));
-  {
-    MutexGuard sensorLock(sensorStateMutex);
-    next.nextSlotEndEpoch = nextHistorySlotEndEpoch;
-    next.tempSum = winTempSum; next.tempN = winTempN;
-    next.turbSum = winTurbSum; next.turbN = winTurbN;
-    next.doSum = winDOSum; next.doN = winDON;
-    next.phSum = winPHSum; next.phN = winPHN;
-    next.waterLevelSum = winWaterLevelSum; next.waterLevelN = winWaterLevelN;
-    next.feedLevelSum = winFeedLevelSum; next.feedLevelN = winFeedLevelN;
-    strlcpy(next.tankId, currentTankId.c_str(), sizeof(next.tankId));
-    strlcpy(next.ownerUid, currentOwnerUid.c_str(), sizeof(next.ownerUid));
-    next.assignmentAtMs = currentAssignmentAtMs;
-  }
-  if (!writeHistoryState(next)) {
-    Serial.println("[HISTORY] NVS checkpoint failed; completed window remains in RAM queue");
-    return false;
-  }
-  persistedHistoryState = next;
-
-  const bool matchingAssignment =
-      hasCurrentTankAssignment() && currentTankId == window.tankId &&
-      currentOwnerUid == window.ownerUid &&
-      currentAssignmentAtMs == window.assignmentAtMs;
-  if (!matchingAssignment) {
-    if (bufferAppend(payload, capturedMs)) {
-      Serial.printf("[BUF] No tank assignment — history retained locally (#%u)\n",
-                    (unsigned)countBufferedEntries());
-      clearPendingHistoryCheckpoint();
-    } else {
-      Serial.println("[BUF] No tank assignment; durable NVS history retry remains pending");
+  if (!bufferContainsCapture(capturedMs)) {
+    FirebaseJson content;
+    buildHistoryPayloadFromSnapshot(content, window);
+    const String payload = content.raw();
+    if (payload.length() == 0 || payload.length() > 4096) {
+      Serial.println("[HISTORY] Could not queue completed window: payload is empty or exceeds 4 KB");
+      return false;
     }
-    return true;
-  }
-
-  // WiFi/Firebase down: buffer the reading for later flush. (Previously we
-  // returned early here and the reading was LOST — the whole point of the
-  // store-and-forward buffer is to survive exactly this case.)
-  if (WiFi.status() != WL_CONNECTED || !ensureFirebaseReady()) {
-    if (bufferAppend(payload, capturedMs)) {
-      Serial.printf("[BUF] Offline — buffered entry #%u\n",
-                    (unsigned)countBufferedEntries());
-      clearPendingHistoryCheckpoint();
-    } else {
-      Serial.println("[BUF] Offline queue unavailable; durable NVS history retry remains pending");
+    if (!bufferAppend(payload, capturedMs)) {
+      Serial.println("[HISTORY] Durable SD/LittleFS queue write failed; window remains queued in RAM for retry");
+      return false;
     }
-    return true;
   }
 
-  if (capturedAt < 1577836800 || firestoreTimestampString(capturedAt).length() == 0) {
-    if (bufferAppend(payload, capturedMs)) {
-      Serial.printf("[BUF] Clock unsynchronized; buffered entry #%u\n",
-                    (unsigned)countBufferedEntries());
-      clearPendingHistoryCheckpoint();
-    }
-    return true;
-  }
-
-  const time_t manilaEpoch = capturedAt + 8 * 60 * 60;
-  struct tm manilaTm;
-  char dateKey[11] = {0};
-  char entryId[32];
-  if (gmtime_r(&manilaEpoch, &manilaTm) == nullptr ||
-      strftime(dateKey, sizeof(dateKey), "%Y-%m-%d", &manilaTm) == 0) {
-    if (bufferAppend(payload, capturedMs)) {
-      Serial.printf("[BUF] Could not resolve history date; buffered #%u\n",
-                    (unsigned)countBufferedEntries());
-      clearPendingHistoryCheckpoint();
-    }
-    return true;
-  }
-  snprintf(entryId, sizeof(entryId), "r_%llu",
-           static_cast<unsigned long long>(capturedMs));
-  const String collectionPath = "tanks/" + String(window.tankId) +
-      "/sensor_readings_history/" + dateKey + "/entries";
-  const String documentPath = collectionPath + "/" + entryId;
-
-  bool saved = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)",
-      collectionPath.c_str(), entryId, payload.c_str(), "");
-  // Recover from a lost HTTP response without creating a duplicate history
-  // record or placing it in the offline queue.
-  if (!saved && fbdo.httpCode() == 409 && firestoreGetDoc(documentPath.c_str())) saved = true;
-  reportCloudResult(saved);
-  if (saved) {
-    Serial.println("[FIRESTORE] History saved directly");
+  Serial.printf("[HISTORY] Capture %s ready in durable queue; entries=%u\n",
+                firestoreTimestampString(capturedAt).c_str(),
+                (unsigned)countBufferedEntries());
+  if (WiFi.status() == WL_CONNECTED && !cloudModeForcedOffline() &&
+      hasCurrentTankAssignment() && ensureFirebaseReady()) {
+    // FIFO flush preserves capture order. If an older entry fails, this one
+    // stays on the durable queue and is retried on a later pass.
+    flushBufferedBatch();
   } else {
-    Serial.printf("[FIRESTORE HISTORY ERROR] %s\n", fbdo.errorReason().c_str());
-    if (bufferAppend(payload, capturedMs)) {
-      Serial.printf("[BUF] Buffered entry #%u for validated history routing\n",
-                    (unsigned)countBufferedEntries());
-      clearPendingHistoryCheckpoint();
-    }
+    Serial.println("[BUF] Local queue retained; waiting for Wi-Fi/Firebase/assignment");
   }
-  if (saved) clearPendingHistoryCheckpoint();
   return true;
 }
 
 void processOneCompletedHistoryWindow() {
-  if (persistedHistoryState.pendingCapturedAtMs > 0) return;
   HistoryWindowSnapshot window{};
   if (!peekCompletedHistoryWindow(window)) return;
   if (sendHistoryToFirestore(window)) {
@@ -4007,12 +4275,12 @@ void setup() {
   showLCDBootProgress("Sensors ready", 80);
   delay(400);
 
-  connectWiFi();
   initOfflineBuffer();  // LittleFS store-and-forward (mounted before loop)
-  getHardwareId();  // resolve MAC-based ID after WiFi is up
-  initFeeder();
   loadHistoryWindowCheckpoint();
   queuePendingHistoryIfPossible();
+  connectWiFi();
+  getHardwareId();  // resolve MAC-based ID after WiFi is up
+  initFeeder();
   initBlower();
   initBlowerButton();
   // Larger read side for Firestore payloads: fewer -6 payload timeouts.
@@ -4091,8 +4359,7 @@ void loop() {
   if (feederRunState != FEEDER_IDLE) {
     const unsigned long checkpointNow = millis();
     if (checkpointNow - lastHistoryCheckpointMs >= 60000UL) {
-      lastHistoryCheckpointMs = checkpointNow;
-      saveHistoryWindowCheckpoint();
+      if (saveHistoryWindowCheckpoint()) lastHistoryCheckpointMs = checkpointNow;
     }
     processFeederTick();
     if (!lcdTaskRunning) updateLCD();
@@ -4145,10 +4412,10 @@ void loop() {
             systemCloudModeInitialized = false;
             if (cloudModeForcedOffline()) firebaseReady = false;
             updateSystemCloudMode();
-            Serial.printf("[SYSTEM] Mode saved: %s. %s\n", systemModeName(),
+            Serial.printf("[SYSTEM] Mode saved: %s for this boot. %s\n", systemModeName(),
                 cloudModeForcedOffline()
-                    ? "Firebase operations paused; local sensing/feed and buffers continue."
-                    : "Cloud operations enabled when Wi-Fi, Firebase, and a valid tank assignment are available.");
+                    ? "Firebase operations paused; local sensing/feed and buffers continue. Restart requests ONLINE."
+                    : "Cloud operations enabled when Wi-Fi, Firebase, and a valid tank assignment are available; restart requests ONLINE.");
           } else {
             systemModeOverride = previousMode;
             Serial.println("[SYSTEM] Could not save mode in NVS; previous mode kept.");
@@ -4200,6 +4467,7 @@ void loop() {
       prefs.end();
       Serial.println("[WIFI] All credentials erased. Restarting...");
       delay(1500);
+      flushHistoryBeforeRestart();
       ESP.restart();
     }
     if (cmd == "wifi add") {
@@ -4221,6 +4489,7 @@ void loop() {
         } else {
           Serial.printf("[WIFI] Saved slot %d \"%s\" — restarting...\n", idx, s.c_str());
           delay(1500);
+          flushHistoryBeforeRestart();
           ESP.restart();
         }
       }
@@ -4239,6 +4508,7 @@ void loop() {
         wifiGetProfile(idx, s, p);
         Serial.printf("[WIFI] Switching to slot %d \"%s\"...\n", idx, s.c_str());
         delay(500);
+        flushHistoryBeforeRestart();
         ESP.restart();
       }
     }
@@ -4796,6 +5066,9 @@ void loop() {
     wifiWasConnected = wifiConnected;
     if (!wifiConnected) {
       firebaseReady = false;
+      wifiReconnectAttemptCount = 0;
+      lastWifiReconnectTime = 0;
+      lastOutageProbeMs = 0;
       Serial.println("[WIFI] Link lost; local sensing continues while reconnect is attempted.");
     } else {
       wifiReconnectAttemptCount = 0;
@@ -4828,10 +5101,30 @@ void loop() {
                     connectedSsid.c_str());
     }
   }
-  if (!wifiConnected && now - lastWifiReconnectTime >= 10000UL) {
+  const bool needProfileSweep = localModeNeedsProfileSweep(wifiConnected);
+  const unsigned long reconnectInterval = needProfileSweep ? 30000UL : 10000UL;
+  if ((!wifiConnected || needProfileSweep) &&
+      now - lastWifiReconnectTime >= reconnectInterval) {
     lastWifiReconnectTime = now;
     ++wifiReconnectAttemptCount;
-    if (wifiReconnectAttemptCount % 3UL == 0) {
+    if (needProfileSweep) {
+      if (wifiSweepAllProfiles(true, 3000UL)) {
+        now = millis();
+        wifiReconnectAttemptCount = 0;
+        lastWifiReconnectTime = 0;
+        nextFirebaseSendEpoch = 0;
+        latestSendRecoveryPending = true;
+        lastLatestRecoveryAttemptMs = 0;
+        if (firebaseStarted) {
+          firebaseReady = false;
+          firebaseReconnectAfterWiFi = !firebaseAuthAttemptFailed;
+          fbdo.clear();
+          Firebase.reconnectWiFi(true);
+          lastOutageProbeMs = 0;
+        }
+        Serial.println("[WIFI] Local-mode sweep restored a usable link; cloud recovery started.");
+      }
+    } else if (wifiReconnectAttemptCount % 3UL == 0) {
       const int savedProfiles = wifiProfileCount();
       if (savedProfiles > 0) {
         int active = wifiActiveIndex();
@@ -5130,9 +5423,10 @@ void loop() {
   }
 
   if (now - lastHistoryCheckpointMs >= 60000UL) {
-    lastHistoryCheckpointMs = now;
     if (!saveHistoryWindowCheckpoint()) {
       Serial.println("[HISTORY] Could not checkpoint in-progress window to NVS");
+    } else {
+      lastHistoryCheckpointMs = now;
     }
   }
 
