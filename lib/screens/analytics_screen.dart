@@ -1459,6 +1459,12 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         'critical': range?['critical'] ?? 10.0,
       };
     }
+    if (key == 'do') {
+      return {
+        'min': range?['min'] ?? 5.0,
+        'max': 999.0,
+      };
+    }
     if (range != null) return range;
     return {'min': 0.0, 'max': 999.0};
   }

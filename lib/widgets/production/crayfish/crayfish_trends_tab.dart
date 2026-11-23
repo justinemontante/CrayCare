@@ -443,13 +443,20 @@ class _TrendsTabState extends State<TrendsTab> {
             isStrokeCapRound: true,
             dotData: FlDotData(
               show: true,
-              getDotPainter: (spot, percent, barData, index) =>
-                  FlDotCirclePainter(
-                radius: 4,
-                color: color,
-                strokeWidth: 2,
-                strokeColor: Colors.white,
-              ),
+              getDotPainter: (spot, percent, barData, index) {
+                final text =
+                    '${spot.y.toStringAsFixed(unit == 'in' ? 2 : 1)}$unit';
+                return _LabelDotPainter(
+                  circlePainter: FlDotCirclePainter(
+                    radius: 3.5,
+                    color: color,
+                    strokeWidth: 1.5,
+                    strokeColor: Colors.white,
+                  ),
+                  label: text,
+                  textColor: color,
+                );
+              },
             ),
             belowBarData: BarAreaData(
               show: true,
@@ -733,12 +740,19 @@ class _TrendsTabState extends State<TrendsTab> {
             isStrokeCapRound: true,
             dotData: FlDotData(
               show: true,
-              getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-                radius: 4,
-                color: const Color(0xFF1FA5A5),
-                strokeWidth: 2,
-                strokeColor: Colors.white,
-              ),
+              getDotPainter: (spot, percent, barData, index) {
+                final text = '${spot.y.toStringAsFixed(2)}$unit';
+                return _LabelDotPainter(
+                  circlePainter: FlDotCirclePainter(
+                    radius: 3.5,
+                    color: const Color(0xFF1FA5A5),
+                    strokeWidth: 1.5,
+                    strokeColor: Colors.white,
+                  ),
+                  label: text,
+                  textColor: const Color(0xFF1FA5A5),
+                );
+              },
             ),
             belowBarData: BarAreaData(
               show: true,
@@ -1127,30 +1141,27 @@ class _TrendsTabState extends State<TrendsTab> {
         ),
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(
-          enabled: true,
+          enabled: false,
           touchTooltipData: BarTouchTooltipData(
             fitInsideHorizontally: true,
             fitInsideVertically: true,
+            tooltipPadding: EdgeInsets.zero,
+            tooltipMargin: 3,
+            tooltipBorder: BorderSide.none,
+            getTooltipColor: (_) => Colors.transparent,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final val = rod.toY;
-              final date = labels[group.x];
+              if (val <= 0) return null;
+              final text = val % 1 == 0
+                  ? '${val.toInt()}g'
+                  : '${val.toStringAsFixed(1)}g';
               return BarTooltipItem(
-                '${val.toInt()} g',
+                text,
                 const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.primary,
                   fontWeight: FontWeight.w700,
-                  fontSize: 12,
+                  fontSize: 8.5,
                 ),
-                children: [
-                  TextSpan(
-                    text: '\n$date',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
               );
             },
           ),
@@ -1158,6 +1169,7 @@ class _TrendsTabState extends State<TrendsTab> {
         barGroups: List.generate(data.length, (i) {
           return BarChartGroupData(
             x: i,
+            showingTooltipIndicators: data[i] > 0 ? [0] : [],
             barRods: [
               BarChartRodData(
                 toY: data[i],
@@ -1433,30 +1445,24 @@ class _TrendsTabState extends State<TrendsTab> {
         ),
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(
-          enabled: true,
+          enabled: false,
           touchTooltipData: BarTouchTooltipData(
             fitInsideHorizontally: true,
             fitInsideVertically: true,
+            tooltipPadding: EdgeInsets.zero,
+            tooltipMargin: 3,
+            tooltipBorder: BorderSide.none,
+            getTooltipColor: (_) => Colors.transparent,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final val = rod.toY;
-              final date = labels[group.x];
+              if (val <= 0) return null;
               return BarTooltipItem(
-                '${val.toInt()} ${val == 1 ? 'mortality' : 'mortalities'}',
+                '${val.toInt()}',
                 const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.critical,
                   fontWeight: FontWeight.w700,
-                  fontSize: 12,
+                  fontSize: 8.5,
                 ),
-                children: [
-                  TextSpan(
-                    text: '\n$date',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
               );
             },
           ),
@@ -1465,6 +1471,7 @@ class _TrendsTabState extends State<TrendsTab> {
           final val = entries[i].count;
           return BarChartGroupData(
             x: i,
+            showingTooltipIndicators: val > 0 ? [0] : [],
             barRods: [
               BarChartRodData(
                 toY: val.toDouble(),
@@ -1516,4 +1523,53 @@ class _TrendsTabState extends State<TrendsTab> {
       ),
     );
   }
+}
+
+class _LabelDotPainter extends FlDotPainter {
+  final FlDotCirclePainter circlePainter;
+  final String label;
+  final Color textColor;
+
+  _LabelDotPainter({
+    required this.circlePainter,
+    required this.label,
+    required this.textColor,
+  });
+
+  @override
+  void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
+    circlePainter.draw(canvas, spot, offsetInCanvas);
+    final textSpan = TextSpan(
+      text: label,
+      style: TextStyle(
+        fontSize: 8.5,
+        fontWeight: FontWeight.w700,
+        color: textColor,
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        offsetInCanvas.dx - textPainter.width / 2,
+        offsetInCanvas.dy - circlePainter.radius - textPainter.height - 2,
+      ),
+    );
+  }
+
+  @override
+  Size getSize(FlSpot spot) => circlePainter.getSize(spot);
+
+  @override
+  Color get mainColor => circlePainter.mainColor;
+
+  @override
+  List<Object?> get props => [circlePainter, label, textColor];
+
+  @override
+  FlDotPainter lerp(FlDotPainter a, FlDotPainter b, double t) => this;
 }

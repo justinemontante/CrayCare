@@ -12,10 +12,22 @@ function timestampMillis(value) {
 
 // Pure contract shared by the trigger and regression tests. Delayed offline
 // events cannot overwrite a later occurrence or a newly edited schedule.
-function scheduleOutcomePatch(schedule, log) {
+//
+// Manual Feed Now logs stay truthfully typed `manual`. Only the final top-up
+// that completes a slot carries a schedule_key and manual_request trigger, and
+// only then may it close that schedule. Pass allowManualCover explicitly so a
+// plain manual log can never be mistaken for an automatic outcome.
+function scheduleOutcomePatch(schedule, log, options = {}) {
+  const {allowManualCover = false} = options;
   const status = String(log.status || "").toLowerCase();
   const at = timestampMillis(log.occurrence_at);
-  if (log.type !== "auto" || !TERMINAL_OUTCOMES.has(status) ||
+  const isAuto = log.type === "auto";
+  const isManualCover = allowManualCover &&
+    log.type === "manual" &&
+    String(log.trigger_source || "").toLowerCase() === "manual_request" &&
+    status === "completed";
+
+  if ((!isAuto && !isManualCover) || !TERMINAL_OUTCOMES.has(status) ||
       !Number.isSafeInteger(at) || at < 1700000000000) return null;
   if (Number(schedule.effective_at_ms || 0) > at ||
       timestampMillis(schedule.last_occurrence_at || 0) > at) return null;

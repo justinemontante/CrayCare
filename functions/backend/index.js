@@ -363,14 +363,23 @@ exports.onFeederLogCreate = functions.runWith({failurePolicy: true}).region("asi
 
     try {
       const { tankId, logId } = context.params;
-      if (data.type === "auto" && typeof data.schedule_key === "string" &&
-          data.schedule_key.length > 0 && !data.schedule_key.includes("/")) {
+      const hasScheduleKey = typeof data.schedule_key === "string" &&
+        data.schedule_key.length > 0 && !data.schedule_key.includes("/");
+      const isAutoOutcome = data.type === "auto" && hasScheduleKey;
+      // Only the final Feed Now top-up carries a schedule key. Partial doses
+      // stay plain manual logs and must not close an automatic schedule.
+      const isManualCover = data.type === "manual" && hasScheduleKey &&
+        status === "completed" &&
+        String(data.trigger_source || "").toLowerCase() === "manual_request";
+      if (isAutoOutcome || isManualCover) {
         const scheduleRef = firestoreDb.collection("tanks").doc(tankId)
           .collection("feeder_schedules").doc(data.schedule_key);
         await firestoreDb.runTransaction(async (transaction) => {
           const schedule = await transaction.get(scheduleRef);
           if (!schedule.exists) return; // Do not resurrect a deleted schedule.
-          const patch = scheduleOutcomePatch(schedule.data(), data);
+          const patch = scheduleOutcomePatch(schedule.data(), data, {
+            allowManualCover: isManualCover,
+          });
           if (patch) transaction.update(scheduleRef, patch);
         });
       }

@@ -613,6 +613,9 @@ class FeederService extends ChangeNotifier {
   Future<bool> feedNow({
     required double grams,
     bool nearScheduleConfirmed = false,
+    String? coverScheduleKey,
+    int? coverOccurrenceAtMs,
+    String? coverScheduleTime,
   }) async {
     // Recheck after any confirmation dialog, immediately before dispatch.
     // Callers outside ControlsScreen receive exactly the same protections.
@@ -656,6 +659,20 @@ class FeederService extends ChangeNotifier {
       };
       // Every Feed Now command must carry the dose explicitly.
       cmd['grams'] = grams;
+      // Only a final top-up that completes the slot carries a schedule cover.
+      // Partial feedings stay plain manual logs and never close a schedule.
+      if (coverScheduleKey != null &&
+          coverScheduleKey.isNotEmpty &&
+          !coverScheduleKey.contains('/') &&
+          coverOccurrenceAtMs != null) {
+        cmd['cover_schedule_key'] = coverScheduleKey;
+        cmd['cover_occurrence_at'] = Timestamp.fromMillisecondsSinceEpoch(
+          coverOccurrenceAtMs,
+        );
+        if (coverScheduleTime != null && coverScheduleTime.isNotEmpty) {
+          cmd['cover_schedule_time'] = coverScheduleTime;
+        }
+      }
       final ref = tankDoc.collection('feeder_commands').doc();
       _lastQueuedCommandId = ref.id;
       await ref.set(cmd);
@@ -781,8 +798,15 @@ class FeederService extends ChangeNotifier {
     // Update the switch immediately; Firestore persistence continues in the
     // background. This avoids making the UI animation wait on the network and
     // the audit-log write.
+    final nowManila = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final today = DateTime(nowManila.year, nowManila.month, nowManila.day);
+    final wasCompletedToday = feederOutcomeOnDate(previous, today) == 'completed' ||
+        feederRecordedOutcome(previous, today, _logs) == 'completed';
+
     final effectiveNow = enabled
-        ? DateTime.now().toUtc()
+        ? (wasCompletedToday && previous.effectiveAt != null
+            ? previous.effectiveAt!
+            : DateTime.now().toUtc())
         : previous.effectiveAt;
     _schedules[index] = ScheduleItem(
       previous.time,
@@ -793,6 +817,8 @@ class FeederService extends ChangeNotifier {
       days: previous.days,
       id: previous.id,
       effectiveAt: effectiveNow,
+      lastOutcome: previous.lastOutcome,
+      lastOccurrenceAt: previous.lastOccurrenceAt,
     );
     FeedState.schedules.value = List.from(_schedules);
     notifyListeners();
@@ -916,10 +942,37 @@ class FeederService extends ChangeNotifier {
               tx.delete(oldRef!);
             } else if (operation == 'toggle') {
               final enabled = payload['enabled'] == true;
+              final oldData = oldSnap.data() ?? {};
+              final lastOutcome = oldData['last_outcome']?.toString();
+              final lastOcc = oldData['last_occurrence_at'];
+              final oldEffectiveMs = oldData['effective_at_ms'] as num?;
+
+              bool alreadyCompletedToday = false;
+              if (lastOutcome == 'completed' && lastOcc != null) {
+                DateTime? lastOccDt;
+                if (lastOcc is Timestamp) {
+                  lastOccDt = lastOcc.toDate();
+                } else if (lastOcc is int) {
+                  lastOccDt = DateTime.fromMillisecondsSinceEpoch(lastOcc, isUtc: true);
+                }
+                if (lastOccDt != null) {
+                  final manilaOcc = lastOccDt.toUtc().add(const Duration(hours: 8));
+                  final nowManila = DateTime.now().toUtc().add(const Duration(hours: 8));
+                  if (manilaOcc.year == nowManila.year &&
+                      manilaOcc.month == nowManila.month &&
+                      manilaOcc.day == nowManila.day) {
+                    alreadyCompletedToday = true;
+                  }
+                }
+              }
+
               tx.update(oldRef!, {
                 'enabled': enabled,
                 'isDone': false,
-                if (enabled) 'effective_at_ms': nowMs,
+                if (enabled)
+                  'effective_at_ms': (alreadyCompletedToday && oldEffectiveMs != null)
+                      ? oldEffectiveMs.toInt()
+                      : nowMs,
               });
             } else if (operation == 'add' || operation == 'edit') {
               if (operation == 'edit' &&

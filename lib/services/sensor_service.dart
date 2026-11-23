@@ -241,6 +241,15 @@ class SensorService extends ChangeNotifier {
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 
+    if (key == 'do') {
+      // Dissolved oxygen has no upper maximum limit. Higher DO is always optimal.
+      // Only low oxygen can warn or reach critical.
+      final critical = range['critical'] ?? 2.0;
+      if (value < critical) return 'CRITICAL';
+      if (value < min) return 'WARNING';
+      return 'OPTIMAL';
+    }
+
     if (key == 'turb' && max > min) {
       // Lower turbidity means clearer water. Only the upper range can warn.
       if (value > max) return 'CRITICAL';

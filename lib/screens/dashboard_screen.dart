@@ -676,6 +676,10 @@ class DashboardScreenState extends State<DashboardScreen>
       final low = range['low'] ?? range['min'] ?? 20.0;
       return 'Ideal: > ${low.toStringAsFixed(0)}%';
     }
+    if (key == 'do') {
+      final min = range['min'] ?? 5.0;
+      return 'Ideal: \u2265 ${min.toStringAsFixed(1)} mg/L';
+    }
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
     final unit = _getUnit(key);
@@ -1880,6 +1884,12 @@ class DashboardScreenState extends State<DashboardScreen>
           '> ${waterCritical.toStringAsFixed(0)}$rUnit to ${waterLow.toStringAsFixed(0)}$rUnit';
       criticalRangeText =
           '> 0$rUnit to ${waterCritical.toStringAsFixed(0)}$rUnit';
+    } else if (sensorKey == 'do') {
+      final critical = (range['critical'] ?? 2.0).toDouble();
+      optimalRangeText = '≥ ${rMin.toStringAsFixed(1)}$rUnit';
+      warningRangeText =
+          '${critical.toStringAsFixed(1)}$rUnit \u2013 ${(rMin - 0.1).toStringAsFixed(1)}$rUnit';
+      criticalRangeText = '< ${critical.toStringAsFixed(1)}$rUnit';
     } else if (checkLower && checkUpper) {
       final lowWarnEnd = rMin + warningThreshold;
       final highWarnStart = rMax - warningThreshold;
@@ -1960,6 +1970,27 @@ class DashboardScreenState extends State<DashboardScreen>
           'Empty',
           '0%',
           'Feeding is blocked until the hopper is refilled.',
+          AppColors.critical,
+        ),
+      ];
+    } else if (sensorKey == 'do') {
+      legends = [
+        _LegendItem(
+          'Optimal',
+          optimalRangeText,
+          'Stable and healthy environment.',
+          AppColors.success,
+        ),
+        _LegendItem(
+          'Warning',
+          warningRangeText,
+          'Mild hypoxia. Aeration is recommended to prevent stress.',
+          AppColors.warning,
+        ),
+        _LegendItem(
+          'Critical',
+          criticalRangeText,
+          'Dangerous hypoxia. Turn on aerators immediately.',
           AppColors.critical,
         ),
       ];

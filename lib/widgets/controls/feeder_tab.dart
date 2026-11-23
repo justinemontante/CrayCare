@@ -4,6 +4,7 @@ import '../../theme/app_colors.dart';
 import '../../models/control_types.dart';
 import '../../utils/snackbar_helper.dart';
 import '../../services/tank_service.dart';
+import '../../utils/feeding_progress.dart';
 
 class FeederRecommendation {
   final int inTankCount;
@@ -113,15 +114,40 @@ class FeederTab extends StatelessWidget {
       listenable: TankService.instance,
       builder: (context, _) {
         final rec = FeederRecommendation.compute();
+        final batch = TankService.instance.selectedBatch;
+        DateTime? batchStart;
+        DateTime? batchEndExclusive;
+        if (batch != null) {
+          batchStart = feedingManilaDate(batch.stockingDate);
+          final endRaw = batch.harvestDate ?? batch.endedAt;
+          if (endRaw != null) {
+            batchEndExclusive = feedingManilaDate(endRaw).add(
+              const Duration(days: 1),
+            );
+          }
+        }
+        final progress = rec.hasData
+            ? computeFeedingProgress(
+                recommendedGrams: rec.perFeedingGrams,
+                logs: feederLogs,
+                now: _manilaNow(),
+                batchStart: batchStart,
+                batchEndExclusive: batchEndExclusive,
+              )
+            : null;
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          child: _buildFeederCardBody(context, rec),
+          child: _buildFeederCardBody(context, rec, progress),
         );
       },
     );
   }
 
-  Widget _buildFeederCardBody(BuildContext ctx, FeederRecommendation rec) {
+  Widget _buildFeederCardBody(
+    BuildContext ctx,
+    FeederRecommendation rec,
+    FeedingProgress? progress,
+  ) {
     final daytime = schedules.where((s) {
       final minutes = feederScheduleMinutes(s);
       return minutes >= 6 * 60 && minutes < 18 * 60;
@@ -251,7 +277,7 @@ class FeederTab extends StatelessWidget {
             const SizedBox(height: 12),
             _buildFeedInventorySummary(),
             const SizedBox(height: 10),
-            _buildFeedingRecommendationCard(ctx, rec),
+            _buildFeedingRecommendationCard(ctx, rec, progress),
             if (schedules.isNotEmpty) ...[
               const SizedBox(height: 10),
               _buildCountdown(),
@@ -370,6 +396,7 @@ class FeederTab extends StatelessWidget {
   Widget _buildFeedingRecommendationCard(
     BuildContext ctx,
     FeederRecommendation rec,
+    FeedingProgress? progress,
   ) {
     if (!rec.hasData) {
       return Container(
@@ -523,6 +550,22 @@ class FeederTab extends StatelessWidget {
                 ),
               ],
             ),
+            if (progress != null) ...[
+              const SizedBox(height: 10),
+              Container(height: 1, color: AppColors.faintBorder),
+              const SizedBox(height: 10),
+              Text(
+                'AM ${progress.morningDispensedGrams.toInt()}/'
+                '${rec.perFeedingGrams.toInt()} g · PM '
+                '${progress.eveningDispensedGrams.toInt()}/'
+                '${rec.perFeedingGrams.toInt()} g',
+                style: TextStyle(
+                  fontSize: 8,
+                  color: AppColors.subtitleText,
+                  height: 1.3,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -790,39 +833,6 @@ class FeederTab extends StatelessWidget {
                   formula: '2 times daily',
                   computation:
                       '${rec.dailyRationGrams.toStringAsFixed(1)}g ÷ 2 = ${(rec.dailyRationGrams / 2).toStringAsFixed(1)}g → ${rec.perFeedingGrams.toInt()} g',
-                  isFinal: true,
-                ),
-                const SizedBox(height: 14),
-                // Note banner
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.lightBg,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.faintBorder),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline_rounded,
-                        size: 15,
-                        color: AppColors.darkWith(0.5),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Whole numbers only (1 gate swing = 1 gram), capped at 200 g per feeding. Doses automatically recalculate with new sampling or mortality records to prevent overfeeding.',
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            height: 1.35,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.darkWith(0.7),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -860,20 +870,15 @@ class FeederTab extends StatelessWidget {
     required String title,
     required String formula,
     required String computation,
-    bool isFinal = false,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: isFinal
-            ? AppColors.primary.withValues(alpha: 0.06)
-            : Colors.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isFinal
-              ? AppColors.primary.withValues(alpha: 0.25)
-              : AppColors.darkWith(0.08),
-          width: isFinal ? 1.5 : 1.0,
+          color: AppColors.darkWith(0.08),
+          width: 1.0,
         ),
       ),
       child: Row(
@@ -884,7 +889,7 @@ class FeederTab extends StatelessWidget {
             height: 18,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isFinal ? AppColors.primary : AppColors.darkWith(0.1),
+              color: AppColors.darkWith(0.1),
             ),
             alignment: Alignment.center,
             child: Text(
@@ -892,7 +897,7 @@ class FeederTab extends StatelessWidget {
               style: TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w800,
-                color: isFinal ? Colors.white : AppColors.darkWith(0.6),
+                color: AppColors.darkWith(0.6),
               ),
             ),
           ),
@@ -909,7 +914,7 @@ class FeederTab extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: isFinal ? AppColors.primary : AppColors.dark,
+                          color: AppColors.dark,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -934,8 +939,8 @@ class FeederTab extends StatelessWidget {
                     computation,
                     style: TextStyle(
                       fontSize: 10,
-                      fontWeight: isFinal ? FontWeight.w800 : FontWeight.w600,
-                      color: isFinal ? AppColors.primary : AppColors.darkWith(0.7),
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.darkWith(0.7),
                     ),
                   ),
                 ),
@@ -1218,6 +1223,7 @@ class FeederTab extends StatelessWidget {
   }
 
   Widget _buildFeedNowButton(BuildContext context) {
+    final enabled = isOnline && !isRunning && canFeed;
     return SizedBox(
       width: double.infinity,
       child: Tooltip(
@@ -1230,7 +1236,7 @@ class FeederTab extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         waitDuration: const Duration(milliseconds: 100),
         child: ElevatedButton(
-          onPressed: isOnline && !isRunning && canFeed
+          onPressed: enabled
               ? onFeedNow
               : () {
                   if (!isOnline) {

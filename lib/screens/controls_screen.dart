@@ -8,12 +8,14 @@ import '../widgets/controls/feed_now_sheet.dart';
 import '../widgets/controls/actuators_tab.dart';
 import '../models/control_types.dart';
 import '../services/feeder_service.dart';
+import '../services/tank_service.dart';
 import '../services/sensor_service.dart';
 import '../services/settings_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/esp_service.dart';
 import '../services/actuator_log_service.dart';
 import '../services/database_service.dart';
+import '../utils/feeding_progress.dart';
 import '../utils/snackbar_helper.dart';
 
 class ControlsScreen extends StatefulWidget {
@@ -510,7 +512,10 @@ class ControlsScreenState extends State<ControlsScreen> {
     return result ?? false;
   }
 
-  Future<void> _feedNow({required double grams}) async {
+  Future<void> _feedNow({
+    required double grams,
+    FeedNowCover? cover,
+  }) async {
     final svc = FeederService.instance;
     if (svc.isRunning ||
         _feedState == _FeedState.waiting ||
@@ -591,6 +596,9 @@ class ControlsScreenState extends State<ControlsScreen> {
     final request = svc.feedNow(
       grams: grams,
       nearScheduleConfirmed: nearScheduleConfirmed,
+      coverScheduleKey: cover?.scheduleKey,
+      coverOccurrenceAtMs: cover?.occurrenceAtMs,
+      coverScheduleTime: cover?.scheduleTime,
     );
     _activeCommandId = svc.lastQueuedCommandId;
     final requestId = _activeCommandId;
@@ -622,8 +630,91 @@ class ControlsScreenState extends State<ControlsScreen> {
     if (mounted) _onFeederUpdate();
   }
 
+  /// Earliest still-outstanding schedule in the current half-day. Only the
+  /// final top-up that completes the slot attaches this cover to its log, so a
+  /// partial feeding never marks the schedule as completed.
+  FeedNowCover? _coverForCurrentSlot(
+    FeedingProgress progress,
+    List<ScheduleItem> schedules,
+  ) {
+    final now = _manilaNow();
+    final today = DateTime(now.year, now.month, now.day);
+    final morning = progress.slot == FeedingSlot.morning;
+    final logs = FeederService.instance.logs;
+
+    ScheduleItem? target;
+    DateTime? targetAt;
+    for (final schedule in schedules) {
+      if (!schedule.enabled || !feederScheduleRunsOnDate(schedule, today)) {
+        continue;
+      }
+      final minute = feederScheduleMinutes(schedule);
+      if (morning ? minute >= 720 : minute < 720) continue;
+
+      final occurrence = DateTime(
+        today.year,
+        today.month,
+        today.day,
+        minute ~/ 60,
+        minute % 60,
+      );
+      if (!feederScheduleWasEffectiveAt(schedule, occurrence)) continue;
+      if (feederOutcomeOnDate(schedule, today) != null) continue;
+      if (feederRecordedOutcome(schedule, today, logs) != null) continue;
+
+      if (targetAt == null || occurrence.isBefore(targetAt)) {
+        target = schedule;
+        targetAt = occurrence;
+      }
+    }
+
+    if (target?.id == null || targetAt == null) return null;
+    final occurrenceUtc = DateTime.utc(
+      targetAt.year,
+      targetAt.month,
+      targetAt.day,
+      targetAt.hour,
+      targetAt.minute,
+    ).subtract(manilaUtcOffset);
+
+    return FeedNowCover(
+      scheduleKey: target!.id!,
+      scheduleTime: '${target.time} ${target.ampm}',
+      occurrenceAtMs: occurrenceUtc.millisecondsSinceEpoch,
+    );
+  }
+
   Future<void> _showFeedNowDialog() async {
-    final grams = await showModalBottomSheet<double>(
+    final rec = FeederRecommendation.compute();
+    FeedingProgress? progress;
+    FeedNowCover? cover;
+
+    if (rec.hasData) {
+      final batch = TankService.instance.selectedBatch;
+      DateTime? batchStart;
+      DateTime? batchEndExclusive;
+      if (batch != null) {
+        batchStart = feedingManilaDate(batch.stockingDate);
+        final endRaw = batch.harvestDate ?? batch.endedAt;
+        if (endRaw != null) {
+          batchEndExclusive = feedingManilaDate(endRaw).add(
+            const Duration(days: 1),
+          );
+        }
+      }
+      progress = computeFeedingProgress(
+        recommendedGrams: rec.perFeedingGrams,
+        logs: FeederService.instance.logs,
+        now: _manilaNow(),
+        batchStart: batchStart,
+        batchEndExclusive: batchEndExclusive,
+      );
+      if (progress.canApply && !progress.isDone) {
+        cover = _coverForCurrentSlot(progress, FeederService.instance.schedules);
+      }
+    }
+
+    final result = await showModalBottomSheet<FeedNowResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
@@ -634,12 +725,12 @@ class ControlsScreenState extends State<ControlsScreen> {
         duration: Duration(milliseconds: 260),
         reverseDuration: Duration(milliseconds: 220),
       ),
-      builder: (_) => const FeedNowSheet(),
+      builder: (_) => FeedNowSheet(progress: progress, cover: cover),
     );
-    if (!mounted || grams == null) return;
+    if (!mounted || result == null) return;
     // The modal owns its input lifecycle. Start the request only after the
     // sheet has returned, never from a context being deactivated.
-    await _feedNow(grams: grams);
+    await _feedNow(grams: result.grams, cover: result.cover);
   }
 
   String _formatTimeInput(String val) {

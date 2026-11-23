@@ -895,6 +895,11 @@ String feederEventKey;
 String feederCommandId;
 String feederStatusReason;
 String feederScheduleTime;
+// Set only by the final Feed Now top-up that completes a slot. Partial feeds
+// leave these empty so they never close an automatic schedule.
+String feederCoverScheduleKey = "";
+String feederCoverScheduleTime = "";
+unsigned long long feederCoverOccurrenceMs = 0;
 bool feederWritingIntent = false;
 bool feederConfigReady = false;
 
@@ -4180,7 +4185,7 @@ bool flushPendingLocalFeedLog();
 bool queuePendingLocalFeedLogOffline();
 bool queueFeederLogEnvelope(const String& eventKey, const String& envelope, bool pending);
 void checkScheduledFeed();
-void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false);
+void startFeed(String source, float grams = 1.0f, String commandId = "", long long issuedAtMs = 0, long long expiresAtMs = 0, bool forceOverride = false, String coverKey = "", String coverTime = "", long long coverOccurrenceMs = 0);
 void processFeederTick();
 void pushFeederLog(String action, String type, String status = "",
                    float requestedGrams = -1.0f,
@@ -5508,6 +5513,9 @@ void processFeederCommands() {
     float grams;
     long long issuedAtMs = 0;
     long long expiresAtMs = 0;
+    String coverKey;
+    String coverTime;
+    long long coverOccurrenceMs = 0;
   };
   CmdEntry entries[20];
   int entryCount = 0;
@@ -5531,6 +5539,11 @@ void processFeederCommands() {
     else if (response.get(d, base + "grams/integerValue")) e.grams = d.stringValue.toFloat();
     if (response.get(d, base + "issued_at/timestampValue")) e.issuedAtMs = firestoreTimestampMillis(d.stringValue);
     if (response.get(d, base + "expires_at/timestampValue")) e.expiresAtMs = firestoreTimestampMillis(d.stringValue);
+    if (response.get(d, base + "cover_schedule_key/stringValue")) e.coverKey = d.stringValue;
+    if (response.get(d, base + "cover_schedule_time/stringValue")) e.coverTime = d.stringValue;
+    if (response.get(d, base + "cover_occurrence_at/timestampValue")) {
+      e.coverOccurrenceMs = firestoreTimestampMillis(d.stringValue);
+    }
     if (e.action != "") entryCount++;
   }
 
@@ -5541,9 +5554,18 @@ void processFeederCommands() {
     Serial.printf("[FEEDER CMD] %s id=%s\n",
                   e.action.c_str(), e.docId.c_str());
 
+    time_t now;
+    time(&now);
+    if (e.expiresAtMs > 0 && (long long)now * 1000 >= e.expiresAtMs) {
+      Serial.printf("[FEEDER CMD] Discarding expired command id=%s\n", e.docId.c_str());
+      String docPath = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;
+      Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath.c_str());
+      continue;
+    }
+
     if (e.action == "feed_now") {
       startFeed("manual", e.grams, e.docId, e.issuedAtMs, e.expiresAtMs,
-                false);
+                false, e.coverKey, e.coverTime, e.coverOccurrenceMs);
       break;
     }
   }
@@ -6327,7 +6349,7 @@ void checkScheduledFeed() {
 }
 
 // ─── Start Feed — kicks off non-blocking state machine ───
-void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride) {
+void startFeed(String source, float grams, String commandId, long long issuedAtMs, long long expiresAtMs, bool forceOverride, String coverKey, String coverTime, long long coverOccurrenceMs) {
   const bool localOnsite = source == "onsite";
   // Defense in depth: never start or log an onsite feed during a boot/pump
   // transition lockout, even if another caller reaches this function.
@@ -6343,6 +6365,12 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     Serial.println("[FEEDER] Already running, skipping");
     return;
   }
+  // Cover fields are request-scoped. A scheduled or plain manual feed must
+  // never inherit a previous Feed Now top-up's schedule association.
+  feederCoverScheduleKey = (source == "scheduled") ? "" : coverKey;
+  feederCoverScheduleTime = (source == "scheduled") ? "" : coverTime;
+  feederCoverOccurrenceMs = (source == "scheduled" || coverOccurrenceMs <= 0)
+      ? 0 : (unsigned long long)coverOccurrenceMs;
   if (!gateCloseAngleConfigured) {
     feederStatus = "blocked";
     feederStatusReason = "Gate close angle not calibrated";
@@ -6522,6 +6550,12 @@ void startFeed(String source, float grams, String commandId, long long issuedAtM
     pushFeederLog(feederStatusReason, "manual", "blocked", grams,
                   feederFeedLevelBefore, feederFeedLevelBefore);
     sendFeederStatus();
+    const String path = "tanks/" + currentTankId + "/feeder_commands/" + commandId;
+    Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str());
+    if (prefs.begin("feederstate", false)) {
+      if (prefs.isKey("cmd_id")) prefs.remove("cmd_id");
+      prefs.end();
+    }
     return;
   }
 
@@ -6660,6 +6694,9 @@ void processFeederTick() {
         feederFeedSource = "";
       }
       feederLastScheduleKey = "";
+      feederCoverScheduleKey = "";
+      feederCoverScheduleTime = "";
+      feederCoverOccurrenceMs = 0;
       feederForced = false;
       feederForceReason = "";
       // Keep the terminal confirmation until the next request starts.
@@ -6703,16 +6740,33 @@ void pushFeederLog(String action, String type, String status,
   if (unassignedOnsite) {
     json.set("fields/assignment_status/stringValue", "unassigned_local_only");
   }
-  if (feederOccurrenceEpoch > 0) {
-    const String occurrenceAt =
-        firestoreTimestampString((time_t)feederOccurrenceEpoch);
-    if (!occurrenceAt.isEmpty()) {
-      json.set("fields/occurrence_at/timestampValue", occurrenceAt);
+  const bool hasCover = feederCoverScheduleKey.length() > 0 &&
+                        feederCoverOccurrenceMs > 0;
+  if (hasCover) {
+    // Manual cover logs point at the schedule occurrence, not the wall-clock
+    // time the farmer pressed Feed Now. This is what lets Cloud Functions
+    // reconcile the schedule without faking a scheduled/auto log.
+    const String coverAt = firestoreTimestampString(
+        (time_t)(feederCoverOccurrenceMs / 1000ULL));
+    if (!coverAt.isEmpty()) {
+      json.set("fields/occurrence_at/timestampValue", coverAt);
     }
-  }
-  if (feederLastScheduleKey.length() > 0) {
-    json.set("fields/schedule_key/stringValue", feederLastScheduleKey);
-    json.set("fields/schedule_time/stringValue", feederScheduleTime);
+    json.set("fields/schedule_key/stringValue", feederCoverScheduleKey);
+    if (feederCoverScheduleTime.length() > 0) {
+      json.set("fields/schedule_time/stringValue", feederCoverScheduleTime);
+    }
+  } else {
+    if (feederOccurrenceEpoch > 0) {
+      const String occurrenceAt =
+          firestoreTimestampString((time_t)feederOccurrenceEpoch);
+      if (!occurrenceAt.isEmpty()) {
+        json.set("fields/occurrence_at/timestampValue", occurrenceAt);
+      }
+    }
+    if (feederLastScheduleKey.length() > 0) {
+      json.set("fields/schedule_key/stringValue", feederLastScheduleKey);
+      json.set("fields/schedule_time/stringValue", feederScheduleTime);
+    }
   }
   json.set("fields/trigger_source/stringValue",
            feederFeedSource == "onsite" ? "physical_button" :
@@ -6966,6 +7020,9 @@ void applyTankAssignment(const String& tankId, const String& ownerUid, long long
   feederWaterQualityWarning = "";
   feederLastScheduleKey = "";
   feederScheduleTime = "";
+  feederCoverScheduleKey = "";
+  feederCoverScheduleTime = "";
+  feederCoverOccurrenceMs = 0;
   feederDispenseCount = 0;
   feederLastCompletedEpoch = 0;
   feederStatus = "idle";

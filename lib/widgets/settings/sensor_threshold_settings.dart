@@ -136,6 +136,13 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
       }
       final unit = _safeUnits[key] ?? '';
       final label = sensorMeta[key]?.label ?? key;
+      if (key == 'do') {
+        if (min < bounds['minLow']! || min > bounds['minHigh']!) {
+          return '$label minimum ($min $unit) is outside the safe range '
+              '${bounds['minLow']}–${bounds['minHigh']} $unit.';
+        }
+        continue;
+      }
       if (min >= max) {
         return '$label: minimum must be lower than maximum.';
       }
@@ -418,13 +425,16 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
               style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.5)),
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(child: _buildModalField('Minimum', minCtrl, unit)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildModalField('Maximum', maxCtrl, unit)),
-              ],
-            ),
+            if (sensorKey == 'do')
+              _buildModalField('Minimum', minCtrl, unit)
+            else
+              Row(
+                children: [
+                  Expanded(child: _buildModalField('Minimum', minCtrl, unit)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildModalField('Maximum', maxCtrl, unit)),
+                ],
+              ),
           ],
         ),
         actions: [
@@ -446,28 +456,40 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
               final min = minText.isEmpty
                   ? currentMin
                   : double.tryParse(minText);
-              final max = maxText.isEmpty
-                  ? (currentMax >= 999 ? 999.0 : currentMax)
-                  : double.tryParse(maxText);
+              final max = sensorKey == 'do'
+                  ? 15.0
+                  : (maxText.isEmpty
+                      ? (currentMax >= 999 ? 999.0 : currentMax)
+                      : double.tryParse(maxText));
               final bounds = _safeBounds[sensorKey];
               final unitText = _safeUnits[sensorKey] ?? '';
               String? candidateError;
-              if (min == null ||
-                  max == null ||
-                  !min.isFinite ||
-                  !max.isFinite) {
-                candidateError =
-                    'Enter valid finite numbers for both thresholds.';
-              } else if (min >= max) {
-                candidateError = 'Minimum must be lower than maximum.';
-              } else if (bounds != null &&
-                  (min < bounds['minLow']! || min > bounds['minHigh']!)) {
-                candidateError =
-                    'Minimum must be ${bounds['minLow']}–${bounds['minHigh']} $unitText.';
-              } else if (bounds != null &&
-                  (max < bounds['maxLow']! || max > bounds['maxHigh']!)) {
-                candidateError =
-                    'Maximum must be ${bounds['maxLow']}–${bounds['maxHigh']} $unitText.';
+              if (sensorKey == 'do') {
+                if (min == null || !min.isFinite) {
+                  candidateError = 'Enter a valid number for minimum DO.';
+                } else if (bounds != null &&
+                    (min < bounds['minLow']! || min > bounds['minHigh']!)) {
+                  candidateError =
+                      'Minimum must be ${bounds['minLow']}–${bounds['minHigh']} $unitText.';
+                }
+              } else {
+                if (min == null ||
+                    max == null ||
+                    !min.isFinite ||
+                    !max.isFinite) {
+                  candidateError =
+                      'Enter valid finite numbers for both thresholds.';
+                } else if (min >= max) {
+                  candidateError = 'Minimum must be lower than maximum.';
+                } else if (bounds != null &&
+                    (min < bounds['minLow']! || min > bounds['minHigh']!)) {
+                  candidateError =
+                      'Minimum must be ${bounds['minLow']}–${bounds['minHigh']} $unitText.';
+                } else if (bounds != null &&
+                    (max < bounds['maxLow']! || max > bounds['maxHigh']!)) {
+                  candidateError =
+                      'Maximum must be ${bounds['maxLow']}–${bounds['maxHigh']} $unitText.';
+                }
               }
               if (candidateError != null) {
                 _showValidationSnackbar(ctx, candidateError);
@@ -848,6 +870,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                           ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
                           : sensorKey == 'waterlevel'
                           ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)} • Low ≤${(range['low'] ?? 15).toStringAsFixed(0)}'
+                          : sensorKey == 'do'
+                          ? '≥ ${min.toStringAsFixed(1)}'
                           : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',
                       style: const TextStyle(
                         fontSize: 10,
