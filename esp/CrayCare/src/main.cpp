@@ -5601,6 +5601,7 @@ void sendFeederStatus() {
   json.set("fields/status/stringValue", feederStatus);
   json.set("fields/command_id/stringValue", feederCommandId);
   json.set("fields/status_reason/stringValue", feederStatusReason);
+  json.set("fields/trigger_source/stringValue", feederFeedSource);
   json.set("fields/dispenseCount/integerValue", String(feederDispenseCount));
   json.set("fields/lastSeen/timestampValue", heartbeatAt);
   const String lastDispensedAt = feederLastCompletedEpoch > 0
@@ -5617,7 +5618,7 @@ void sendFeederStatus() {
   String statusDoc = "tanks/" + currentTankId + "/feeder/status";
   if (!Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "",
         statusDoc.c_str(), json.raw(),
-        "status,command_id,status_reason,dispenseCount,lastSeen,last_dispensed_at,feed_level")) {
+        "status,command_id,status_reason,trigger_source,dispenseCount,lastSeen,last_dispensed_at,feed_level")) {
     if (fbdo.httpConnected()) {
       Serial.printf("[FEEDER STATUS ERROR] %s\n", fbdo.errorReason().c_str());
     }
@@ -5729,8 +5730,18 @@ bool reserveFeedNowCommand(const String& commandId, const String& tankId, float 
   if (!prefs.begin("feederstate", false)) return false;
   const String existingId = readOptionalFeederStateString("cmd_id");
   if (!existingId.isEmpty()) {
+    if (existingId == commandId) {
+      prefs.end();
+      return true;
+    }
     prefs.end();
-    return false;
+    flushPendingFeedNowLog();
+    if (!prefs.begin("feederstate", false)) return false;
+    if (prefs.isKey("cmd_id")) {
+      prefs.remove("cmd_id");
+      prefs.remove("cmd_tank");
+      prefs.remove("cmd_grams");
+    }
   }
   const bool ok = prefs.putString("cmd_tank", tankId) > 0 &&
       prefs.putString("cmd_grams", String(grams, 1)) > 0 &&

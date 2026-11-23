@@ -962,39 +962,53 @@ class ControlsScreenState extends State<ControlsScreen> {
     final isFailed = _feedState == _FeedState.failed;
     final isDone = _feedState == _FeedState.done;
     final isDispensing = _feedState == _FeedState.dispensing;
-    final isScheduled = !_manualFeedInitiated;
+    final triggerSource = FeederService.instance.triggerSource.trim().toLowerCase();
+    final isOnsite = !_manualFeedInitiated && triggerSource == 'onsite';
+    final isScheduled = !_manualFeedInitiated && triggerSource != 'onsite';
 
     final (
       String title,
       String subtitle,
       IconData icon,
       Color iconColor,
-    ) = switch ((isFailed, isDone, isDispensing, isScheduled)) {
-      (true, _, _, _) => (
+    ) = switch ((isFailed, isDone, isDispensing, isOnsite, isScheduled)) {
+      (true, _, _, _, _) => (
         'Feeding update',
         _feedNotice,
         Icons.error_outline_rounded,
         AppColors.critical,
       ),
-      (_, true, _, true) => (
+      (_, true, _, true, _) => (
+        'Onsite Feed Complete!',
+        'Feed has been dispensed via physical button.',
+        Icons.check_circle_rounded,
+        AppColors.success,
+      ),
+      (_, true, _, _, true) => (
         'Feed Complete!',
         'Scheduled feed has been dispensed.',
         Icons.check_circle_rounded,
         AppColors.success,
       ),
-      (_, true, _, false) => (
+      (_, true, _, false, false) => (
         'Done!',
         'Feed has been dispensed successfully.',
         Icons.check_circle_rounded,
         AppColors.success,
       ),
-      (_, _, true, true) => (
+      (_, _, true, true, _) => (
+        'Onsite Feeding...',
+        'Dispensing via physical button.',
+        Icons.touch_app_rounded,
+        AppColors.primary,
+      ),
+      (_, _, true, _, true) => (
         'Auto-feeding...',
         'Scheduled feed in progress.',
         Icons.schedule,
         AppColors.primary,
       ),
-      (_, _, true, false) => (
+      (_, _, true, false, false) => (
         'Dispensing...',
         'Please wait while the feeder is running.',
         Icons.schedule,

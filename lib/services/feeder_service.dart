@@ -125,6 +125,7 @@ class FeederService extends ChangeNotifier {
   String _status = 'idle';
   String? _statusCommandId;
   String _statusReason = '';
+  String _triggerSource = '';
   String? _lastQueuedCommandId;
   int _dispenseCount = 0;
   double? _feedLevelPercent;
@@ -146,6 +147,7 @@ class FeederService extends ChangeNotifier {
   String get status => _status;
   String? get statusCommandId => _statusCommandId;
   String get statusReason => _statusReason;
+  String get triggerSource => _triggerSource;
   String? get lastQueuedCommandId => _lastQueuedCommandId;
   int get dispenseCount => _dispenseCount;
   double? get feedLevelPercent => _feedLevelPercent;
@@ -366,6 +368,7 @@ class FeederService extends ChangeNotifier {
     _status = 'idle';
     _statusCommandId = null;
     _statusReason = '';
+    _triggerSource = '';
     _lastQueuedCommandId = null;
     _manualRequestPendingUntil = null;
     _dispenseCount = 0;
@@ -407,6 +410,9 @@ class FeederService extends ChangeNotifier {
                   _manualRequestPendingUntil = null;
                 }
                 _statusReason = data['status_reason'] as String? ?? '';
+                _triggerSource = data['trigger_source'] as String? ??
+                    data['feed_source'] as String? ??
+                    '';
                 _isRunning =
                     _status == 'dispensing' || _status == 'checking_feed_level';
                 _feedLevelPercent = (data['feed_level'] as num?)?.toDouble();
