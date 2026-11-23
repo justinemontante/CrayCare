@@ -19,6 +19,10 @@ class _TrendsTabState extends State<TrendsTab> {
   // Shared paddings: the pinned Y-axis labels and the scrollable chart must
   // use the same top/bottom plot insets or the labels drift off their ticks.
   static const double _kTopReserved = 16.0;
+  // Bar charts render their value label *above* the rod as a tooltip widget.
+  // We need extra clearance so the tallest bar's label is never clipped by the
+  // top reserved border (8.5pt text + 3px margin + safety ≈ 28px).
+  static const double _kBarTopReserved = 28.0;
   static const double _kBottomReserved = 44.0;
   static const double _kBottomLabelSpace = 4.0;
 
@@ -986,7 +990,7 @@ class _TrendsTabState extends State<TrendsTab> {
     final fcr = biomassGain > 0 ? totalFeed / biomassGain : null;
 
     final maxVal = chartData.isNotEmpty ? chartData.reduce(max) : 0.0;
-    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.18);
+    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.25);
     final chartMaxY = step * 4;
     final yLabels = [0.0, step, step * 2, step * 3, step * 4];
 
@@ -1052,7 +1056,7 @@ class _TrendsTabState extends State<TrendsTab> {
                       unit: 'g',
                       width: 38,
                       height: 180,
-                      topReservedSize: _kTopReserved,
+                      topReservedSize: _kBarTopReserved,
                       bottomReservedSize: _kBottomReserved,
                       decimalPlaces: 0,
                       customYLabels: yLabels,
@@ -1117,7 +1121,7 @@ class _TrendsTabState extends State<TrendsTab> {
         minY: 0,
         gridData: const FlGridData(show: false),
         titlesData: FlTitlesData(
-          topTitles: _reservedOnly(_kTopReserved),
+          topTitles: _reservedOnly(_kBarTopReserved),
           rightTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -1276,7 +1280,7 @@ class _TrendsTabState extends State<TrendsTab> {
     final maxVal = dailyEntries.isNotEmpty
         ? dailyEntries.map((e) => e.count.toDouble()).reduce(max)
         : 0.0;
-    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.18);
+    final step = _niceIntegerStep(maxVal, tickCount: 4, headroom: 1.25);
     final chartMaxY = step * 4;
     final yLabels = [0.0, step, step * 2, step * 3, step * 4];
 
@@ -1320,7 +1324,7 @@ class _TrendsTabState extends State<TrendsTab> {
                       unit: '',
                       width: 30,
                       height: 180,
-                      topReservedSize: _kTopReserved,
+                      topReservedSize: _kBarTopReserved,
                       bottomReservedSize: _kBottomReserved,
                       decimalPlaces: 0,
                       customYLabels: yLabels,
@@ -1419,7 +1423,7 @@ class _TrendsTabState extends State<TrendsTab> {
         minY: 0,
         gridData: const FlGridData(show: false),
         titlesData: FlTitlesData(
-          topTitles: _reservedOnly(_kTopReserved),
+          topTitles: _reservedOnly(_kBarTopReserved),
           rightTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,

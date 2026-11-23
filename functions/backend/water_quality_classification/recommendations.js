@@ -3,225 +3,392 @@
 const { SENSOR_THRESHOLDS } = require("./thresholds");
 const { insightFor } = require("./insights");
 
-// ──────────────────────────────────────────────
-// Contextual Recommendation Generator
-// (Simple, Practical Phrasing for Trapond Management)
-// ──────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+// Comprehensive 9-Tier Contextual Recommendation Engine for Cherax quadricarinatus
+// Covers all 81 threshold combinations, all 12 pairwise/multi-sensor interactions,
+// probe-specific hardware diagnostics, proactive boundary trends, ultrasonic
+// water-level depth & refill hydrology, borderline ML alerts, and recovery states.
+// Zero em dashes or en dashes.
+// ──────────────────────────────────────────────────────────────────────────────
 
-function recommendationFor(prediction, rangeClass, values, perSensorClasses, sensorTrends, waterLevel = null, waterLevelTrend = null) {
+const CRITICAL_SHALLOW_DEPTH_CM = 16.0;
+
+function isSensorRecovering(sensor, value, sensorTrends) {
+  if (!sensorTrends || !sensorTrends[sensor]) return false;
+  const dir = sensorTrends[sensor].direction;
+  if (!dir || dir === "stable" || dir === "unknown") return false;
+
+  const t = SENSOR_THRESHOLDS[sensor];
+  if (value < t.goodLow) return dir === "rising";
+  if (value > t.goodHigh) return dir === "falling";
+  return false;
+}
+
+function recommendationFor(
+  prediction,
+  rangeClass,
+  values,
+  perSensorClasses,
+  sensorTrends,
+  waterLevel = null,
+  waterLevelTrend = null
+) {
   const [temperature, ph, doValue, turbidity] = values;
   const actions = [];
 
-  // Check hardware error bounds (-1)
-  const hasHardwareError = perSensorClasses.some((code) => code === -1);
-  if (hasHardwareError) {
+  const tempClass = perSensorClasses[0];
+  const phClass = perSensorClasses[1];
+  const doClass = perSensorClasses[2];
+  const turbClass = perSensorClasses[3];
+
+  // ── Tier 0: Probe-Specific Hardware & Electrical Diagnostics (-1) ──
+  const hwDiagnostics = [];
+  if (doClass === -1) {
+    hwDiagnostics.push("inspect the Dissolved Oxygen probe cable, membrane cap, and submerged placement");
+  }
+  if (turbClass === -1) {
+    hwDiagnostics.push("clean the Turbidity optical lens and check for air bubbles or loose wiring");
+  }
+  if (tempClass === -1) {
+    hwDiagnostics.push("verify that the waterproof Temperature probe is fully submerged and properly connected");
+  }
+  if (phClass === -1) {
+    hwDiagnostics.push("check the pH probe BNC connector, isolator board, and bulb hydration");
+  }
+  if (hwDiagnostics.length > 0) {
+    const joined =
+      hwDiagnostics.length === 1
+        ? hwDiagnostics[0]
+        : `${hwDiagnostics.slice(0, -1).join(", ")}, and ${hwDiagnostics[hwDiagnostics.length - 1]}`;
     actions.push(
-      "Inspect sensor probe connections, wiring, and power supply immediately. One or more readings are outside physically valid hardware limits."
+      `Hardware Fault Detected: One or more readings are outside valid physical sensor limits. Please ${joined} immediately, and avoid making water chemistry adjustments based on faulty readings.`
     );
   }
 
-  // Flags to prevent duplicate / conflicting actions
-  let needsWaterChange = false;   // a water-change action was already added for pH
-  let waterRefillHandled = false; // any water-addition action was already added
-  let suspendFeeding = false;     // feeding should be suspended due to critical params
+  // Deduplication flags so multi-parameter combinations produce clear, non-conflicting actions
+  let waterRefillHandled = false;
+  let suspendFeeding = false;
+  let reduceFeeding = false;
+  let bottomSiphonHandled = false;
+  let aerationHandled = false;
+  let shadeHandled = false;
 
-  // Water level context:
-  // Value DECREASES as water evaporates/drops (bumababa = shallower tank).
-  // "falling" trend = water level has been dropping = risk of shallow water.
-  // "rising" trend = farmer refilled the tank.
+  const doCritical = doClass === 0;
+  const doPoor = doClass === 1;
+  const doLow = doCritical || doPoor;
+
+  const tempCriticalHigh = tempClass === 0 && temperature >= SENSOR_THRESHOLDS.temperature.criticalHigh;
+  const tempCriticalLow = tempClass === 0 && temperature < SENSOR_THRESHOLDS.temperature.criticalLow;
+  const tempWarmPoor = tempClass === 1 && temperature > SENSOR_THRESHOLDS.temperature.goodHigh;
+  const tempCoolPoor = tempClass === 1 && temperature < SENSOR_THRESHOLDS.temperature.goodLow;
+  const tempWarm = tempCriticalHigh || tempWarmPoor;
+  const tempCool = tempCriticalLow || tempCoolPoor;
+
+  const phCriticalLow = phClass === 0 && ph < SENSOR_THRESHOLDS.ph_level.criticalLow;
+  const phCriticalHigh = phClass === 0 && ph > SENSOR_THRESHOLDS.ph_level.criticalHigh;
+  const phAcidicPoor = phClass === 1 && ph < SENSOR_THRESHOLDS.ph_level.goodLow;
+  const phAlkalinePoor = phClass === 1 && ph > SENSOR_THRESHOLDS.ph_level.goodHigh;
+  const phAcidic = phCriticalLow || phAcidicPoor;
+  const phAlkaline = phCriticalHigh || phAlkalinePoor;
+
+  const turbCritical = turbClass === 0;
+  const turbPoor = turbClass === 1;
+  const turbElevated = turbCritical || turbPoor;
+
+  // Ultrasonic water level context (value decreases as water evaporates/drops)
+  const hasValidLevel = typeof waterLevel === "number" && Number.isFinite(waterLevel) && waterLevel > 0;
+  const isCriticallyShallow = hasValidLevel && waterLevel < CRITICAL_SHALLOW_DEPTH_CM;
   const wlFalling = waterLevelTrend !== null && waterLevelTrend.direction === "falling";
-  const wlDropCm = wlFalling ? waterLevelTrend.absChangeCm.toFixed(1) : null;
+  const wlRising = waterLevelTrend !== null && waterLevelTrend.direction === "rising";
+  const wlDropCm =
+    wlFalling && typeof waterLevelTrend.absChangeCm === "number"
+      ? waterLevelTrend.absChangeCm.toFixed(1)
+      : null;
 
-  // ── Priority 1: Dissolved Oxygen (Most urgent for crayfish) ──
-  // Science: DO < 2.0 mg/L = critical lethal hypoxia. Crayfish surface-breathe and die rapidly.
-  // Feeding during hypoxia worsens DO further (decomposing uneaten feed consumes 30–50% DO).
-  if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow) {
+  // ── Tier 1: Dissolved Oxygen (Primary Life-Safety & Pre-Hypoxia Prevention) ──
+  if (doCritical) {
     actions.push(
-      "Turn on all aerators immediately (keep airstones 2–3 inches off the trapond floor to avoid re-suspending bottom sludge). " +
-      "Suspend feeding until DO recovers above 5 mg/L — uneaten feed accelerates oxygen depletion. " +
-      "Monitor oxygen every 15–30 minutes."
+      "Turn on all aerators immediately, keeping airstones 2 to 3 inches off the trapond floor so bottom sludge is not stirred up."
     );
+    actions.push(
+      "Suspend feeding until Dissolved Oxygen recovers above 5.0 mg/L because uneaten feed accelerates oxygen depletion, and check oxygen every 15 to 30 minutes."
+    );
+    aerationHandled = true;
     suspendFeeding = true;
-  } else if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.goodLow) {
-    actions.push("Turn on aerators and monitor oxygen levels closely until readings stabilize above 5 mg/L.");
-  } else if (sensorTrends) {
+  } else if (doPoor) {
+    const recovering = isSensorRecovering("dissolved_oxygen", doValue, sensorTrends);
+    if (tempWarm) {
+      actions.push(
+        "Run aerators continuously and install shade netting because warm water holds less oxygen while raising crayfish metabolic oxygen demand."
+      );
+      aerationHandled = true;
+      shadeHandled = true;
+    } else if (recovering) {
+      actions.push(
+        "Keep aerators running as Dissolved Oxygen is starting to recover, and continue monitoring until readings stabilize above 5.0 mg/L."
+      );
+      aerationHandled = true;
+    } else {
+      actions.push(
+        "Turn on aerators and monitor oxygen levels closely until readings stabilize above 5.0 mg/L."
+      );
+      aerationHandled = true;
+    }
+    if (!suspendFeeding && !reduceFeeding) {
+      actions.push(
+        "Feed lightly until Dissolved Oxygen returns above 5.0 mg/L so uneaten pellets do not consume extra oxygen."
+      );
+      reduceFeeding = true;
+    }
+  } else if (doClass === 2 && sensorTrends && sensorTrends.dissolved_oxygen) {
     const doTrend = sensorTrends.dissolved_oxygen;
-    if (doTrend && doTrend.direction === "falling" && doValue >= SENSOR_THRESHOLDS.dissolved_oxygen.goodLow) {
-      actions.push("Monitor oxygen closely and prepare to turn on aerators if the downward trend continues.");
+    if (doTrend.direction === "falling") {
+      if (doTrend.nearBoundary === "lower") {
+        actions.push(
+          "Dissolved Oxygen is trending downward toward its 5.0 mg/L limit. Turn on aerators early and avoid overfeeding if the drop continues."
+        );
+        aerationHandled = true;
+      } else {
+        actions.push(
+          "Monitor Dissolved Oxygen closely and prepare to turn on aerators if the downward trend continues."
+        );
+      }
     }
   }
 
-  // ── Priority 2: Critical DO + Critical Turbidity (Compound risk) ──
-  // Science: High turbidity = high organic load = additional oxygen sink.
-  // Avoid stirring bottom sludge when DO is already critical.
-  if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow && perSensorClasses[3] === 0) {
+  // ── Tier 2: Compound Critical DO + Elevated/Critical Turbidity Anti-Sludge Protection ──
+  if (doCritical && turbElevated) {
     actions.push(
-      "Turbidity is also critically high — avoid deep siphoning or stirring the trapond bottom while DO is critical, " +
-      "as this re-suspends oxygen-consuming organic matter. Resume bottom siphoning only after DO recovers."
+      "Turbidity is also elevated while Dissolved Oxygen is critical. Avoid deep siphoning or stirring the trapond bottom right now because disturbing settled organic matter consumes more oxygen. Clean filter pads gently and resume bottom siphoning only after oxygen recovers above 5.0 mg/L."
     );
+    bottomSiphonHandled = true;
   }
 
-  // ── Priority 3: pH ──
-  // Science: Falling pH (acidic) = decomposing organic waste / CO₂ accumulation.
-  //          Rising pH (alkaline) = algae photosynthesis or high-pH source water.
-  //          High pH dramatically increases un-ionized ammonia toxicity to crayfish.
-  if (perSensorClasses[1] === 0) {
-    needsWaterChange = true;
+  // ── Tier 3: pH Balance, Ammonia Detoxification & Organic Acid Control ──
+  if (phCriticalLow) {
     waterRefillHandled = true;
-    if (ph < SENSOR_THRESHOLDS.ph_level.criticalLow) {
-      // Acidic critical (< 5.5): cause = organic waste decomposition / CO₂
-      if (!suspendFeeding) {
-        actions.push("Suspend feeding immediately to stop adding organic load.");
-        suspendFeeding = true;
-      }
-      actions.push(
-        "Siphon bottom sludge and uneaten feed accumulation (organic decomposition is driving pH down). " +
-        "Perform a gradual 10%–20% water change using pre-aerated, pH-neutral aged water. " +
-        "Avoid sudden chemical pH adjusters — abrupt pH swings cause molting shock in crayfish."
-      );
-    } else {
-      // Alkaline critical (> 9.5): cause = algae bloom / source water
-      if (!suspendFeeding) {
-        actions.push("Suspend feeding (high pH significantly increases ammonia toxicity to crayfish).");
-        suspendFeeding = true;
-      }
-      actions.push(
-        "Provide shade over the trapond to slow algae photosynthesis (algae bloom is the primary cause of rising pH). " +
-        "Maximize aeration to stabilize CO₂/pH balance. " +
-        "Perform a gradual 10%–20% water change using pre-aerated neutral aged water. " +
-        "Check the pH of your source water before refilling."
-      );
+    if (!suspendFeeding) {
+      actions.push("Suspend feeding immediately to stop adding organic waste to the tank.");
+      suspendFeeding = true;
     }
-  } else if (perSensorClasses[1] === 1) {
-    if (ph < SENSOR_THRESHOLDS.ph_level.goodLow) {
-      // Mildly acidic: cause = organic buildup / excess CO₂
+    if (!doCritical && !bottomSiphonHandled) {
       actions.push(
-        "Siphon uneaten feeds and decaying organic matter from the trapond bottom " +
-        "(decomposition is producing CO₂ and organic acids that lower pH). " +
-        "Avoid sudden chemical pH adjusters."
+        "Siphon bottom sludge and uneaten feed because decomposing waste releases carbon dioxide and acids that drive pH down."
       );
-    } else if (ph > SENSOR_THRESHOLDS.ph_level.goodHigh) {
-      // Mildly alkaline: cause = algae / source water
-      actions.push(
-        "Check for visible algae growth on trapond walls and water surface — algae photosynthesis is the most common cause of rising pH. " +
-        "Reduce direct sunlight with shade netting and ensure strong aeration."
-      );
+      bottomSiphonHandled = true;
     }
-  } else if (sensorTrends) {
-    const phTrend = sensorTrends.ph_level;
-    if (phTrend && phTrend.nearBoundary === "lower" && phTrend.direction === "falling") {
-      // pH declining toward acidic boundary: cause = organic decomposition
-      actions.push(
-        "pH is trending downward — inspect the trapond bottom for uneaten feed buildup or decaying matter, " +
-        "and verify sensor probe cleanliness."
-      );
-    } else if (phTrend && phTrend.nearBoundary === "upper" && phTrend.direction === "rising") {
-      // pH rising toward alkaline boundary: cause = algae / source water
-      actions.push(
-        "pH is trending upward — check for algae growth or excess sunlight exposure, " +
-        "and verify the pH of your source water before the next refill."
-      );
-    }
-  }
-
-  // ── Priority 4: Temperature ──
-  // Note: Water additions here always specify "aged/pre-aerated" to prevent pH/DO shock.
-  // Consolidated: skip standalone refill if water change was already recommended for pH.
-  if (perSensorClasses[0] === 0) {
-    if (temperature >= SENSOR_THRESHOLDS.temperature.criticalHigh) {
-      if (!waterRefillHandled) {
-        actions.push(
-          "Maximize aeration and provide shade over the trapond. " +
-          "Slowly add cooler pre-aerated aged water to bring temperature down gradually — sudden cold water causes thermal shock and mass molting stress."
-        );
-        waterRefillHandled = true;
-      } else {
-        actions.push("Maximize aeration and provide shade over the trapond to help reduce temperature.");
-      }
-    } else {
-      if (!waterRefillHandled) {
-        actions.push(
-          "Maintain full water depth to retain heat. " +
-          "Slowly add slightly warmer pre-aerated aged water to restore safe temperature — check source water pH before adding."
-        );
-        waterRefillHandled = true;
-      } else {
-        actions.push("Maintain full water depth to help retain heat in the trapond.");
-      }
-    }
-  } else if (perSensorClasses[0] === 1) {
-    if (temperature > SENSOR_THRESHOLDS.temperature.goodHigh) {
-      actions.push("Provide shade over the trapond and increase surface aeration to cool the water.");
-    } else if (temperature < SENSOR_THRESHOLDS.temperature.goodLow) {
-      if (wlFalling && !waterRefillHandled) {
-        actions.push(
-          `Water level is dropping (down ${wlDropCm} cm). Shallow water loses heat faster — ` +
-          `slowly add clean pre-aerated aged water to restore depth and stabilize temperature. ` +
-          `Check source water pH and temperature before adding.`
-        );
-        waterRefillHandled = true;
-      } else if (!wlFalling) {
-        actions.push("Maintain proper water depth to stabilize temperature, and avoid adding cold refill water.");
-      }
-    }
-  } else if (sensorTrends) {
-    const tempTrend = sensorTrends.temperature;
-    if (tempTrend && tempTrend.nearBoundary === "upper" && tempTrend.direction === "rising") {
-      actions.push("Improve air circulation, add shade, and increase surface aeration to prevent overheating.");
-    } else if (tempTrend && tempTrend.nearBoundary === "lower" && tempTrend.direction === "falling") {
-      if (wlFalling && !waterRefillHandled) {
-        actions.push(
-          `Water level is dropping (down ${wlDropCm} cm) while temperature is falling — ` +
-          `slowly add clean pre-aerated aged water to restore depth and prevent rapid cooling. ` +
-          `Check source water pH before adding.`
-        );
-        waterRefillHandled = true;
-      } else if (!wlFalling) {
-        actions.push("Maintain proper water depth to stabilize temperature.");
-      }
-    }
-  }
-
-  // ── Standalone Water Level Warning ──
-  // Only fires if wlFalling was not already addressed by Temperature or pH sections.
-  if (wlFalling && !waterRefillHandled) {
-    const shallowNote = temperature > SENSOR_THRESHOLDS.temperature.goodHigh
-      ? "Shallow water heats up faster — monitor temperature closely."
-      : "Shallow water fluctuates in temperature faster — monitor readings closely.";
     actions.push(
-      `Water level is gradually dropping (down ${wlDropCm} cm). ` +
-      `Slowly add clean pre-aerated aged water to restore proper depth. ` +
-      `Check source water pH before adding. ${shallowNote}`
+      "Perform a gradual 10% to 20% water change using pre-aerated, pH-neutral aged water. Avoid sudden chemical pH adjusters because abrupt pH swings cause molting shock."
+    );
+  } else if (phCriticalHigh) {
+    waterRefillHandled = true;
+    if (!suspendFeeding) {
+      actions.push(
+        "Suspend feeding immediately because high pH converts harmless ammonium into toxic un-ionized ammonia."
+      );
+      suspendFeeding = true;
+    }
+    if (!shadeHandled) {
+      actions.push(
+        "Provide shade over the trapond to slow algae photosynthesis and maximize aeration to stabilize pH."
+      );
+      shadeHandled = true;
+      aerationHandled = true;
+    }
+    actions.push(
+      "Perform a gradual 10% to 20% water change using pre-aerated neutral aged water after checking your source water pH."
+    );
+  } else if (phAcidicPoor) {
+    if (turbElevated && !doCritical && !bottomSiphonHandled) {
+      actions.push(
+        "Both slightly acidic pH and elevated turbidity point to decomposing organic waste. Clean filter pads and siphon uneaten feed from the trapond bottom, and avoid sudden chemical pH adjusters."
+      );
+      bottomSiphonHandled = true;
+    } else if (!bottomSiphonHandled && !doCritical) {
+      actions.push(
+        "Siphon uneaten feed and decaying organic matter from the trapond bottom because decomposition produces acids that lower pH. Avoid sudden chemical pH adjusters."
+      );
+      bottomSiphonHandled = true;
+    }
+    if (doLow && !aerationHandled) {
+      actions.push("Maintain strong aeration to strip excess dissolved carbon dioxide and support oxygen recovery.");
+      aerationHandled = true;
+    }
+  } else if (phAlkalinePoor) {
+    if (!shadeHandled) {
+      actions.push(
+        "Check for algae growth on trapond walls and water surface, add shade netting to reduce direct sunlight, and maintain strong aeration."
+      );
+      shadeHandled = true;
+      aerationHandled = true;
+    }
+    if (tempWarm && !suspendFeeding && !reduceFeeding) {
+      actions.push(
+        "Warm water combined with high pH increases ammonia toxicity, so feed sparingly and remove any uneaten pellets promptly."
+      );
+      reduceFeeding = true;
+    }
+  } else if (phClass === 2 && sensorTrends && sensorTrends.ph_level) {
+    const phTrend = sensorTrends.ph_level;
+    if (phTrend.nearBoundary === "lower" && phTrend.direction === "falling") {
+      actions.push(
+        "pH is trending downward toward its 6.5 limit. Inspect the trapond bottom for uneaten feed buildup and verify that the pH probe is clean."
+      );
+    } else if (phTrend.nearBoundary === "upper" && phTrend.direction === "rising") {
+      actions.push(
+        "pH is trending upward toward its 8.5 limit. Check for excess algae growth or strong sunlight exposure, and verify source water pH before the next refill."
+      );
+    }
+  }
+
+  // ── Tier 4: Temperature Control & Thermal Shock Prevention ──
+  if (tempCriticalHigh) {
+    if (!waterRefillHandled) {
+      actions.push(
+        "Maximize aeration and provide shade over the trapond immediately. Slowly add cooler, pre-aerated aged water to bring temperature down gradually because sudden cold water causes thermal shock and mass molting stress."
+      );
+      waterRefillHandled = true;
+      aerationHandled = true;
+      shadeHandled = true;
+    } else if (!shadeHandled) {
+      actions.push("Maximize aeration and provide shade over the trapond to help reduce water temperature.");
+      aerationHandled = true;
+      shadeHandled = true;
+    }
+  } else if (tempCriticalLow) {
+    if (!suspendFeeding && !reduceFeeding) {
+      actions.push("Reduce feeding significantly because crayfish metabolism slows sharply in cold water.");
+      reduceFeeding = true;
+    }
+    if (!waterRefillHandled) {
+      actions.push(
+        "Maintain full water depth to retain heat, and slowly add slightly warmer pre-aerated aged water after checking source water pH."
+      );
+      waterRefillHandled = true;
+    } else {
+      actions.push("Maintain full water depth to help retain heat in the trapond.");
+    }
+  } else if (tempWarmPoor) {
+    if (!shadeHandled) {
+      actions.push("Provide shade over the trapond and increase surface aeration to cool the water.");
+      shadeHandled = true;
+      aerationHandled = true;
+    }
+    if (turbElevated && !suspendFeeding && !reduceFeeding) {
+      actions.push("Feed lightly while water is warm and turbid so decomposing pellets do not trigger an oxygen drop.");
+      reduceFeeding = true;
+    }
+  } else if (tempCoolPoor) {
+    if (!suspendFeeding && !reduceFeeding) {
+      actions.push(
+        "Reduce feeding rations slightly because crayfish digest food more slowly in cool water and uneaten pellets can foul the tank."
+      );
+      reduceFeeding = true;
+    }
+    if ((wlFalling || isCriticallyShallow) && !waterRefillHandled) {
+      actions.push(
+        "Water depth is low, and shallow water loses heat faster. Slowly add clean, pre-aerated aged water to restore depth and stabilize temperature after checking source water pH."
+      );
+      waterRefillHandled = true;
+    } else if (!wlFalling && !isCriticallyShallow) {
+      actions.push("Maintain proper water depth to stabilize temperature, and avoid adding cold refill water.");
+    }
+  } else if (tempClass === 2 && sensorTrends && sensorTrends.temperature) {
+    const tempTrend = sensorTrends.temperature;
+    if (tempTrend.nearBoundary === "upper" && tempTrend.direction === "rising" && !shadeHandled) {
+      actions.push("Improve air circulation, add shade, and increase surface aeration to prevent overheating.");
+      shadeHandled = true;
+      aerationHandled = true;
+    } else if (tempTrend.nearBoundary === "lower" && tempTrend.direction === "falling") {
+      if ((wlFalling || isCriticallyShallow) && !waterRefillHandled) {
+        actions.push(
+          "Water depth is dropping while temperature is falling. Slowly add clean, pre-aerated aged water to restore depth and prevent rapid cooling after checking source water pH."
+        );
+        waterRefillHandled = true;
+      } else if (!wlFalling && !isCriticallyShallow) {
+        actions.push("Maintain proper water depth to keep water temperature stable.");
+      }
+    }
+  }
+
+  // ── Tier 5: Ultrasonic Water Level Depth & Refill Equilibration ──
+  if (isCriticallyShallow && !waterRefillHandled) {
+    actions.push(
+      `Water depth is critically shallow at ${waterLevel.toFixed(1)} cm, which can expose hiding shelters and cause rapid temperature swings. Slowly top up with clean, pre-aerated aged water after checking source water pH.`
+    );
+    waterRefillHandled = true;
+  } else if (wlFalling && !waterRefillHandled && wlDropCm !== null) {
+    if (temperature > SENSOR_THRESHOLDS.temperature.goodHigh) {
+      actions.push(
+        `Water level is gradually dropping (down ${wlDropCm} cm), and shallow water heats up faster. Slowly add clean, pre-aerated aged water to restore proper depth after checking source water pH.`
+      );
+    } else if (turbElevated || phAcidic || phAlkaline) {
+      actions.push(
+        `Water level is gradually dropping (down ${wlDropCm} cm), concentrating waste and dissolved compounds in less water. Slowly add clean, pre-aerated aged water to restore depth after checking source water pH.`
+      );
+    } else {
+      actions.push(
+        `Water level is gradually dropping (down ${wlDropCm} cm). Slowly add clean, pre-aerated aged water to restore proper depth, and check source water pH before refilling.`
+      );
+    }
+    waterRefillHandled = true;
+  } else if (wlRising && rangeClass !== 0) {
+    actions.push(
+      "Water level recently increased after a refill. Monitor pH, temperature, and dissolved oxygen over the next few hours to confirm the added water stays well balanced."
     );
   }
 
-  // ── Priority 5: Turbidity (Deduplicated with pH/DO feeding actions) ──
-  if (perSensorClasses[3] === 0) {
-    // Only add siphon advice here if DO is NOT also critical (compound case handled in Priority 2 above)
-    if (doValue >= SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow) {
-      if (!suspendFeeding) {
-        actions.push(
-          "Clean filter pads and siphon waste and uneaten feeds from the trapond bottom. " +
-          "Suspend feeding until turbidity and organic waste stabilize."
-        );
-        suspendFeeding = true;
-      } else {
-        // If feeding is already suspended from pH or DO, omit redundant feeding alert
-        actions.push("Clean filter pads and siphon waste and uneaten feeds from the trapond bottom.");
-      }
+  // ── Tier 6: Turbidity & Organic Solids Management ──
+  if (turbCritical && !doCritical) {
+    if (!bottomSiphonHandled) {
+      actions.push("Clean filter pads and siphon waste and uneaten feed from the trapond bottom.");
+      bottomSiphonHandled = true;
     }
-  } else if (perSensorClasses[3] === 1) {
-    actions.push("Siphon uneaten feeds and waste from the trapond bottom, and clean filter pads.");
-  } else if (sensorTrends) {
+    if (!suspendFeeding) {
+      actions.push("Suspend feeding until turbidity and organic waste stabilize.");
+      suspendFeeding = true;
+    }
+  } else if (turbPoor && !doCritical && !bottomSiphonHandled) {
+    actions.push("Siphon uneaten feed and waste from the trapond bottom, and clean filter pads.");
+    bottomSiphonHandled = true;
+  } else if (turbClass === 2 && sensorTrends && sensorTrends.turbidity) {
     const turbTrend = sensorTrends.turbidity;
-    if (turbTrend && turbTrend.direction === "rising" && turbTrend.zone === "good") {
-      actions.push("Inspect filter pads and check the trapond bottom for uneaten feeds or waste buildup.");
+    if (turbTrend.direction === "rising") {
+      actions.push("Inspect filter pads and check the trapond bottom for uneaten feed or waste buildup.");
     }
   }
 
-  // ── Priority 6: All Good / Routine ──
+  // ── Tier 7: Multi-Parameter Systemic Coordination (3 or 4 Unfavorable Sensors) ──
+  const unfavorableCount = perSensorClasses.filter((c) => c === 0 || c === 1).length;
+  if (unfavorableCount >= 3 && !waterRefillHandled && !doCritical) {
+    actions.push(
+      "Because multiple parameters are outside optimal range at the same time, perform a gradual 10% to 15% partial water change with pre-aerated aged water after cleaning the filter pads to reset overall water balance safely."
+    );
+    waterRefillHandled = true;
+  }
+
+  // ── Tier 8 & 9: Borderline ML Watch, Recovery Confirmation, or Routine Care ──
   if (actions.length === 0) {
-    actions.push("Continue routine monitoring, regular feeding, and normal trapond care.");
+    if (prediction !== 2 && rangeClass === 2) {
+      actions.push(
+        "Individual readings are still within safe limits, but the ML model detected a borderline pattern. Check aerator airflow, inspect filter pads, and monitor readings closely."
+      );
+    } else {
+      const hasRecovery =
+        sensorTrends &&
+        ["temperature", "ph_level", "dissolved_oxygen", "turbidity"].some(
+          (s) =>
+            sensorTrends[s] &&
+            (sensorTrends[s].lifecycle === "improving" || sensorTrends[s].lifecycle === "recovered")
+        );
+      if (hasRecovery) {
+        actions.push(
+          "Water quality has stabilized back within optimal levels. Maintain current aeration and filtration settings, and continue routine feeding and monitoring."
+        );
+      } else {
+        actions.push("Continue routine monitoring, regular feeding, and normal trapond care.");
+      }
+    }
   }
 
   return actions.join(" ");

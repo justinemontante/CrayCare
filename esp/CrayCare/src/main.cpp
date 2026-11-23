@@ -2345,15 +2345,12 @@ bool wifiTryOne(const String &s, const String &p,
   return WiFi.status() == WL_CONNECTED;
 }
 
-// Local/offline mode must not just sit on a connected-but-useless AP. Sweep
-// every saved profile when cloud access is unavailable, unless a physical
-// calibration or feeder action owns the loop right now.
+// Only sweep alternative WiFi profiles if WiFi is actually disconnected AND
+// we have more than 1 saved profile to try. Never disconnect a working WiFi
+// connection merely because of a temporary cloud/Firestore timeout.
 static bool localModeNeedsProfileSweep(bool wifiConnected) {
-  if (!wifiConnected || calibrationMode || feederRunState != FEEDER_IDLE) return false;
-  if (cloudModeForcedOffline() || cloudOutage) return true;
-  if (firebaseStarted && firebaseAuthAttemptFailed) return true;
-  if (cloudBootstrapComplete && !hasCurrentTankAssignment()) return true;
-  return false;
+  if (wifiConnected || calibrationMode || feederRunState != FEEDER_IDLE) return false;
+  return wifiProfileCount() > 1;
 }
 
 static bool wifiSweepAllProfiles(bool startAtZero, unsigned long perProfileWaitMs) {
@@ -2427,6 +2424,7 @@ void connectWiFi() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_17dBm);  // Stablize RF current draw to prevent USB/rail voltage sag
   WiFi.setAutoReconnect(true);
   WiFi.disconnect(true, true);
   delay(200);
@@ -5122,7 +5120,7 @@ void loop() {
     lastWifiReconnectTime = now;
     ++wifiReconnectAttemptCount;
     if (needProfileSweep) {
-      if (wifiSweepAllProfiles(true, 3000UL)) {
+      if (wifiSweepAllProfiles(true, 8000UL)) {
         now = millis();
         wifiReconnectAttemptCount = 0;
         lastWifiReconnectTime = 0;

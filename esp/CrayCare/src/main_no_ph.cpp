@@ -1970,6 +1970,7 @@ void connectWiFi() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_17dBm);  // Stablize RF current draw to prevent USB/rail voltage sag
   WiFi.setAutoReconnect(true);
   WiFi.disconnect(true, true);
   delay(200);

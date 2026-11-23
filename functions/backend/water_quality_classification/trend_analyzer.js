@@ -1,11 +1,5 @@
 "use strict";
 
-/**
- * Supplementary trend analysis for recent crayfish pond readings.
- * This does not change the Random Forest class; it describes direction,
- * recent range, and whether conditions are improving or worsening.
- */
-
 const { SENSOR_THRESHOLDS, classifySensorValue, classCodeToZone } = require("./thresholds");
 
 const SENSOR_CONFIG = {
@@ -51,10 +45,7 @@ function isValidSensorValue(sensor, value) {
     value >= cfg.validLow && value <= cfg.validHigh;
 }
 
-/**
- * Detect direction using actual timestamp gaps. `minChange` is defined for the
- * baseline 30-minute window and is scaled to the observed window length.
- */
+
 function detectDirection(points, cfg) {
   if (points.length < 2) {
     return { direction: "stable", change: 0, consistency: 0, rate: 0, windowMinutes: 0 };

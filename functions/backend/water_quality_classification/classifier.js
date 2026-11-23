@@ -77,7 +77,15 @@ function buildPrediction(data, values, range, prediction, sourcePath, sensorTren
     class_code: prediction,
     class_label: CLASS_NAMES[prediction],
     threshold_status: CLASS_NAMES[rangeClass],
-    insight: insightFor(prediction, rangeClass, values, perSensorClasses, sensorTrends),
+    insight: insightFor(
+      prediction,
+      rangeClass,
+      values,
+      perSensorClasses,
+      sensorTrends,
+      typeof data.water_level === "number" ? data.water_level : null,
+      waterLevelTrend
+    ),
     recommendation: recommendationFor(prediction, rangeClass, values, perSensorClasses, sensorTrends, typeof data.water_level === "number" ? data.water_level : null, waterLevelTrend),
     sensor_trends: trendsToStore,
     source_recorded_at: timestamp,
