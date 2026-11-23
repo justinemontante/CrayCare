@@ -27,6 +27,17 @@ function insightFor(prediction, rangeClass, values, perSensorClasses, sensorTren
   const [temperature, ph, doValue, turbidity] = values;
   const mlLabel = CLASS_NAMES[prediction];
 
+  // Check hardware error bounds (-1)
+  const hardwareFaults = [];
+  for (let i = 0; i < FEATURE_NAMES.length; i++) {
+    if (perSensorClasses[i] === -1) {
+      hardwareFaults.push(`${FRIENDLY[FEATURE_NAMES[i]]} (${values[i].toFixed(2)})`);
+    }
+  }
+  if (hardwareFaults.length > 0) {
+    return `Hardware Alert: Sensor readings out of physical bounds on ${joinNatural(hardwareFaults)}. Please inspect sensor wiring, probe immersion, and power supply.`;
+  }
+
   const criticalIssues = [];
   const poorIssues = [];
   const goodParams = [];

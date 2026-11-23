@@ -3,6 +3,7 @@
 /**
  * Single source of truth for CrayCare water quality sensor thresholds.
  * Class codes:
+ *  -1 = Sensor Error / Out of physical hardware bounds
  *   0 = Critical (Life-threatening emergency)
  *   1 = Poor (Sub-optimal / Warning)
  *   2 = Good (Optimal range for Cherax quadricarinatus)
@@ -64,7 +65,11 @@ const SENSOR_THRESHOLDS = {
 };
 
 /**
- * Classifies a single sensor reading into 0 (Critical), 1 (Poor), or 2 (Good).
+ * Classifies a single sensor reading into:
+ *  -1 (Sensor Error / Out-of-bounds),
+ *   0 (Critical),
+ *   1 (Poor),
+ *   2 (Good).
  */
 function classifySensorValue(sensor, value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -75,22 +80,30 @@ function classifySensorValue(sensor, value) {
     throw new Error(`Unknown sensor: ${sensor}`);
   }
 
-  // Critical checks (0)
-  const isCriticalLow = value < t.criticalLow;
+  // 1. Floating-point precision normalization (eliminates 29.000000000000004 boundary jitter)
+  const normalizedValue = Number(value.toFixed(2));
+
+  // 2. Hardware sanity check / physical sensor boundaries
+  if (normalizedValue < t.validLow || normalizedValue > t.validHigh) {
+    return -1; // Out-of-bounds / disconnected probe fault
+  }
+
+  // 3. Critical checks (0)
+  const isCriticalLow = normalizedValue < t.criticalLow;
   const isCriticalHigh = t.criticalHighInclusive
-    ? value >= t.criticalHigh
-    : value > t.criticalHigh;
+    ? normalizedValue >= t.criticalHigh
+    : normalizedValue > t.criticalHigh;
 
   if (isCriticalLow || isCriticalHigh) {
     return 0;
   }
 
-  // Good checks (2)
-  if (value >= t.goodLow && value <= t.goodHigh) {
+  // 4. Good checks (2)
+  if (normalizedValue >= t.goodLow && normalizedValue <= t.goodHigh) {
     return 2;
   }
 
-  // Otherwise Poor (1)
+  // 5. Otherwise Poor (1)
   return 1;
 }
 
@@ -99,6 +112,8 @@ function classifySensorValue(sensor, value) {
  */
 function classCodeToZone(code) {
   switch (code) {
+    case -1:
+      return "sensor_error";
     case 0:
       return "critical";
     case 1:

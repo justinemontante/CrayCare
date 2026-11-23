@@ -9,7 +9,7 @@ const FEATURE_NAMES = [
   "dissolved_oxygen",
   "turbidity",
 ];
-const CLASS_NAMES = { 0: "Critical", 1: "Poor", 2: "Good" };
+const CLASS_NAMES = { "-1": "Sensor Error", 0: "Critical", 1: "Poor", 2: "Good" };
 
 function predictClass(values) {
   // values = [temperature, ph_level, dissolved_oxygen, turbidity]
@@ -49,6 +49,9 @@ function readingNote(feature, value, status) {
   const t = SENSOR_THRESHOLDS[feature];
   if (!t) return null;
 
+  if (status === -1) {
+    return `${t.label} reading ${formatted}${t.unit ? " " + t.unit : ""} is outside physical sensor bounds (${t.validLow}–${t.validHigh}${t.unit ? " " + t.unit : ""}) indicating sensor disconnect or hardware fault.`;
+  }
   if (feature === "temperature") {
     if (status === 0) return `Temperature ${formatted}°C is in the Critical range.`;
     if (status === 1) return `Temperature ${formatted}°C is outside the Good range of ${t.goodLow}–${t.goodHigh}°C.`;
@@ -71,9 +74,14 @@ function readingNote(feature, value, status) {
 function rangeAnalysis(values) {
   const perSensorClasses = FEATURE_NAMES.map((feature, index) =>
     classifySensorValue(feature, values[index]));
+  
+  const hasSensorError = perSensorClasses.some((code) => code === -1);
+  const biologicalClasses = perSensorClasses.filter((code) => code >= 0);
+  const overallClass = hasSensorError ? -1 : (biologicalClasses.length ? Math.min(...biologicalClasses) : 0);
+
   return {
     perSensorClasses,
-    overallClass: Math.min(...perSensorClasses),
+    overallClass,
     notes: FEATURE_NAMES
       .map((feature, index) => readingNote(feature, values[index], perSensorClasses[index]))
       .filter(Boolean),

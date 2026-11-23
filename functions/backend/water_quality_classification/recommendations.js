@@ -12,6 +12,14 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   const [temperature, ph, doValue, turbidity] = values;
   const actions = [];
 
+  // Check hardware error bounds (-1)
+  const hasHardwareError = perSensorClasses.some((code) => code === -1);
+  if (hasHardwareError) {
+    actions.push(
+      "Inspect sensor probe connections, wiring, and power supply immediately. One or more readings are outside physically valid hardware limits."
+    );
+  }
+
   // Flags to prevent duplicate / conflicting actions
   let needsWaterChange = false;   // a water-change action was already added for pH
   let waterRefillHandled = false; // any water-addition action was already added
