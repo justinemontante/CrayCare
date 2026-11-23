@@ -13,7 +13,8 @@ const {
   analyzeTrends,
   MIN_SAMPLES,
 } = require("./trend_analyzer");
-const { insightFor, recommendationFor } = require("./recommendations");
+const { insightFor } = require("./insights");
+const { recommendationFor } = require("./recommendations");
 const { fetchRecentReadings, saveResult } = require("./firestore_records");
 
 const db = admin.firestore();
