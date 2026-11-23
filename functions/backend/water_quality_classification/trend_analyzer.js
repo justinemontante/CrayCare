@@ -6,55 +6,20 @@
  * recent range, and whether conditions are improving or worsening.
  */
 
+const { SENSOR_THRESHOLDS, classifySensorValue, classCodeToZone } = require("./thresholds");
+
 const SENSOR_CONFIG = {
   temperature: {
-    label: "Temperature",
-    unit: "°C",
-    minChange: 0.3,
-    validLow: 0,
-    validHigh: 50,
-    goodLow: 26,
-    goodHigh: 29,
-    criticalLow: 23,
-    criticalHigh: 34,
-    criticalHighInclusive: true,
-    proximity: 1.0,
+    ...SENSOR_THRESHOLDS.temperature,
   },
   ph_level: {
-    label: "pH",
-    unit: "",
-    minChange: 0.15,
-    validLow: 0,
-    validHigh: 14,
-    goodLow: 7.0,
-    goodHigh: 8.5,
-    criticalLow: 6.5,
-    criticalHigh: 9.0,
-    proximity: 0.3,
+    ...SENSOR_THRESHOLDS.ph_level,
   },
   dissolved_oxygen: {
-    label: "Dissolved Oxygen",
-    unit: "mg/L",
-    minChange: 0.3,
-    validLow: 0,
-    validHigh: 30,
-    goodLow: 5.0,
-    goodHigh: Infinity,
-    criticalLow: 3.0,
-    criticalHigh: Infinity,
-    proximity: 0.8,
+    ...SENSOR_THRESHOLDS.dissolved_oxygen,
   },
   turbidity: {
-    label: "Turbidity",
-    unit: "NTU",
-    minChange: 3.0,
-    validLow: 0,
-    validHigh: 5000,
-    goodLow: 0,
-    goodHigh: 25,
-    criticalLow: -Infinity,
-    criticalHigh: 50,
-    proximity: 5,
+    ...SENSOR_THRESHOLDS.turbidity,
   },
 };
 
@@ -129,19 +94,23 @@ function detectDirection(points, cfg) {
   return { direction: "stable", change, consistency: roundedConsistency, rate: roundedRate, windowMinutes };
 }
 
-function zoneInfo(value, cfg) {
-  const criticalLow = value < cfg.criticalLow;
-  const criticalHigh = cfg.criticalHighInclusive
-    ? value >= cfg.criticalHigh
-    : value > cfg.criticalHigh;
-
+function zoneInfo(value, cfg, sensor = null) {
   let zone;
-  if (criticalLow || criticalHigh) {
-    zone = "critical";
-  } else if (value < cfg.goodLow || value > cfg.goodHigh) {
-    zone = "poor";
+  if (sensor && SENSOR_THRESHOLDS[sensor]) {
+    zone = classCodeToZone(classifySensorValue(sensor, value));
   } else {
-    zone = "good";
+    const criticalLow = value < cfg.criticalLow;
+    const criticalHigh = cfg.criticalHighInclusive
+      ? value >= cfg.criticalHigh
+      : value > cfg.criticalHigh;
+
+    if (criticalLow || criticalHigh) {
+      zone = "critical";
+    } else if (value < cfg.goodLow || value > cfg.goodHigh) {
+      zone = "poor";
+    } else {
+      zone = "good";
+    }
   }
 
   let nearBoundary = null;
@@ -206,7 +175,7 @@ function analyzeTrends(recentReadings, prevResult) {
     }
 
     const direction = detectDirection(points, cfg);
-    const zone = zoneInfo(latestValue, cfg);
+    const zone = zoneInfo(latestValue, cfg, sensor);
     const previous = prevTrends[sensor] || {};
     const lifecycle = computeLifecycle(direction, zone, previous, cfg, latestValue);
 

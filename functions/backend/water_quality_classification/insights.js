@@ -1,7 +1,7 @@
 "use strict";
 
 const { CLASS_NAMES, FEATURE_NAMES } = require("./wqc_model");
-const { SENSOR_CONFIG } = require("./trend_analyzer");
+const { SENSOR_THRESHOLDS } = require("./thresholds");
 
 // ──────────────────────────────────────────────
 // Friendly sensor labels
@@ -51,10 +51,10 @@ function insightFor(prediction, rangeClass, values, perSensorClasses, sensorTren
 
   // Priority 3: Temperature
   if (perSensorClasses[0] === 0) {
-    const detail = temperature < 15 ? "critically low" : "critically high";
+    const detail = temperature < SENSOR_THRESHOLDS.temperature.criticalLow ? "critically low" : "critically high";
     criticalIssues.push(`Temperature is ${detail} for crayfish (${temperature.toFixed(1)}°C)`);
   } else if (perSensorClasses[0] === 1) {
-    const detail = temperature > 29 ? "slightly warm for crayfish" : "slightly cool for crayfish";
+    const detail = temperature > SENSOR_THRESHOLDS.temperature.goodHigh ? "slightly warm for crayfish" : "slightly cool for crayfish";
     poorIssues.push(`Temperature is ${detail} (${temperature.toFixed(1)}°C)`);
   } else {
     goodParams.push("Temperature");
@@ -62,10 +62,10 @@ function insightFor(prediction, rangeClass, values, perSensorClasses, sensorTren
 
   // Priority 4: pH
   if (perSensorClasses[1] === 0) {
-    const detail = ph < 6.5 ? "critically acidic" : "critically alkaline";
+    const detail = ph < SENSOR_THRESHOLDS.ph_level.criticalLow ? "critically acidic" : "critically alkaline";
     criticalIssues.push(`pH is ${detail} (${ph.toFixed(2)})`);
   } else if (perSensorClasses[1] === 1) {
-    const detail = ph > 8.5 ? "alkaline" : "acidic";
+    const detail = ph > SENSOR_THRESHOLDS.ph_level.goodHigh ? "alkaline" : "acidic";
     poorIssues.push(`pH is slightly ${detail} (${ph.toFixed(2)})`);
   } else {
     goodParams.push("pH");
@@ -79,9 +79,9 @@ function insightFor(prediction, rangeClass, values, perSensorClasses, sensorTren
     const critText = criticalIssues.join(" and ");
     if (prediction === 2) {
       if (goodParams.length > 0) {
-        text = `Safety Override Alert: Although majority parameters (${joinNatural(goodParams)}) are optimal and the ML statistical model scored overall as Good, ${critText}. Immediate corrective action is required.`;
+        text = `Parameter Threshold Warning: While the ML model classified overall water quality as Good based on majority parameters (${joinNatural(goodParams)}), ${critText}. Immediate corrective action is required.`;
       } else {
-        text = `Safety Override Alert: Although the ML statistical model scored overall as Good, ${critText}. Immediate corrective action is required.`;
+        text = `Parameter Threshold Warning: While the ML model classified overall water quality as Good based on multivariate patterns, ${critText}. Immediate corrective action is required.`;
       }
     } else if (poorIssues.length > 0 && goodParams.length > 0) {
       text = `The ML model classified the water quality as ${mlLabel} primarily because ${critText}, while ${poorIssues.join(" and ")}, and ${joinNatural(goodParams)} remain within optimal range.`;
@@ -131,23 +131,27 @@ function buildSimpleTrendNote(sensorTrends, isGoodResult) {
     if (t.lifecycle === "insufficient_data" || t.lifecycle === "normal" || t.direction === "stable") continue;
 
     const label = FRIENDLY[sensor];
-    const unit = SENSOR_CONFIG[sensor].unit;
+    const unit = SENSOR_THRESHOLDS[sensor] ? SENSOR_THRESHOLDS[sensor].unit : "";
     const unitStr = unit ? (unit === "°C" ? "°C" : ` ${unit}`) : "";
-    const changeAbs = Math.abs(t.change).toFixed(sensor === "ph_level" ? 2 : 1);
+    const decimals = sensor === "ph_level" ? 2 : 1;
+    const sign = t.change >= 0 ? "+" : "-";
+    const changeFormatted = `${sign}${Math.abs(t.change).toFixed(decimals)}`;
+    const changeAbs = Math.abs(t.change).toFixed(decimals);
     const windowStr = t.windowMinutes ? `over the past ${t.windowMinutes} minutes` : "over recent readings";
 
-    if (t.direction === "falling" && t.zone !== "good") {
+    // Evaluate improving / recovered states BEFORE general directional states to avoid shadowing
+    if (t.lifecycle === "improving") {
+      notes.push(`${label} is actively recovering toward the optimal range (${changeFormatted}${unitStr} ${windowStr}).`);
+    } else if (t.lifecycle === "recovered") {
+      notes.push(`${label} has stabilized within the optimal range.`);
+    } else if (t.direction === "falling" && t.zone !== "good") {
       notes.push(`${label} decreased by ${changeAbs}${unitStr} ${windowStr}.`);
     } else if (t.direction === "rising" && t.zone !== "good") {
       notes.push(`${label} increased by ${changeAbs}${unitStr} ${windowStr}.`);
     } else if (t.direction === "falling" && t.nearBoundary === "lower") {
-      notes.push(`${label} is declining toward the lower threshold (-${changeAbs}${unitStr} ${windowStr}).`);
+      notes.push(`${label} is declining toward the lower threshold (${changeFormatted}${unitStr} ${windowStr}).`);
     } else if (t.direction === "rising" && t.nearBoundary === "upper") {
-      notes.push(`${label} is rising toward the upper threshold (+${changeAbs}${unitStr} ${windowStr}).`);
-    } else if (t.lifecycle === "recovering" || t.lifecycle === "improving") {
-      notes.push(`${label} is actively recovering toward the optimal range (+${changeAbs}${unitStr} ${windowStr}).`);
-    } else if (t.lifecycle === "recovered") {
-      notes.push(`${label} has stabilized within the optimal range.`);
+      notes.push(`${label} is rising toward the upper threshold (${changeFormatted}${unitStr} ${windowStr}).`);
     }
   }
 

@@ -1,6 +1,7 @@
 "use strict";
 
 const forest = require("./wqc_random_forest.json");
+const { SENSOR_THRESHOLDS, classifySensorValue } = require("./thresholds");
 
 const FEATURE_NAMES = [
   "temperature",
@@ -43,54 +44,33 @@ function predictClass(values) {
   return forest.classes[bestIndex];
 }
 
-function sensorClass(feature, value) {
-  if (feature === "temperature") {
-    if (value < 15 || value >= 34) return 0;
-    if (value < 26 || value > 29) return 1;
-    return 2;
-  }
-  if (feature === "ph_level") {
-    if (value < 5.5 || value > 9.5) return 0;
-    if (value < 6.5 || value > 8.5) return 1;
-    return 2;
-  }
-  if (feature === "dissolved_oxygen") {
-    if (value < 2) return 0;
-    if (value < 5) return 1;
-    return 2;
-  }
-  if (feature === "turbidity") {
-    if (value > 50) return 0;
-    if (value > 25) return 1;
-    return 2;
-  }
-  throw new Error(`Unknown feature: ${feature}`);
-}
-
 function readingNote(feature, value, status) {
   const formatted = value.toFixed(2);
+  const t = SENSOR_THRESHOLDS[feature];
+  if (!t) return null;
+
   if (feature === "temperature") {
     if (status === 0) return `Temperature ${formatted}°C is in the Critical range.`;
-    if (status === 1) return `Temperature ${formatted}°C is outside the Good range of 26–29°C.`;
+    if (status === 1) return `Temperature ${formatted}°C is outside the Good range of ${t.goodLow}–${t.goodHigh}°C.`;
   }
   if (feature === "ph_level") {
     if (status === 0) return `pH ${formatted} is in the Critical range.`;
-    if (status === 1) return `pH ${formatted} is outside the Good range of 6.5–8.5.`;
+    if (status === 1) return `pH ${formatted} is outside the Good range of ${t.goodLow}–${t.goodHigh}.`;
   }
   if (feature === "dissolved_oxygen") {
-    if (status === 0) return `DO ${formatted} mg/L is below the Critical limit of 2.0 mg/L.`;
-    if (status === 1) return `DO ${formatted} mg/L is below the 5.0 mg/L Good target.`;
+    if (status === 0) return `DO ${formatted} mg/L is below the Critical limit of ${t.criticalLow.toFixed(1)} mg/L.`;
+    if (status === 1) return `DO ${formatted} mg/L is below the ${t.goodLow.toFixed(1)} mg/L Good target.`;
   }
   if (feature === "turbidity") {
     if (status === 0) return `Turbidity ${formatted} NTU is in the Critical range.`;
-    if (status === 1) return `Turbidity ${formatted} NTU is outside the Good range of 0–25 NTU.`;
+    if (status === 1) return `Turbidity ${formatted} NTU is outside the Good range of ${t.goodLow}–${t.goodHigh} NTU.`;
   }
   return null;
 }
 
 function rangeAnalysis(values) {
   const perSensorClasses = FEATURE_NAMES.map((feature, index) =>
-    sensorClass(feature, values[index]));
+    classifySensorValue(feature, values[index]));
   return {
     perSensorClasses,
     overallClass: Math.min(...perSensorClasses),

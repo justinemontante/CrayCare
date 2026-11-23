@@ -11,6 +11,7 @@ const {
 } = require("./wqc_model");
 const {
   analyzeTrends,
+  timestampMillis,
   MIN_SAMPLES,
 } = require("./trend_analyzer");
 const { insightFor } = require("./insights");
@@ -123,11 +124,23 @@ exports.classifyWaterQuality = functions
       latestRef.get(),
     ]);
 
-    // Graceful forward-fill for transient missing DO if other 3 sensors are valid
+    // Graceful forward-fill for transient missing DO if other 3 sensors are valid and DO is fresh (<= 60 min)
     if (typeof data.dissolved_oxygen !== "number" || !Number.isFinite(data.dissolved_oxygen)) {
-      const lastWithDO = [...recentReadings].reverse().find(
-        (r) => typeof r.dissolved_oxygen === "number" && Number.isFinite(r.dissolved_oxygen),
-      );
+      const currentMs = timestampMillis(data.recorded_at);
+      const lastWithDO = [...recentReadings].reverse().find((r) => {
+        if (typeof r.dissolved_oxygen !== "number" || !Number.isFinite(r.dissolved_oxygen)) {
+          return false;
+        }
+        if (currentMs !== null) {
+          const rMs = timestampMillis(r.recorded_at);
+          if (rMs !== null) {
+            const ageMinutes = Math.abs(currentMs - rMs) / 60000;
+            return ageMinutes <= 60;
+          }
+        }
+        return false;
+      });
+
       if (
         lastWithDO &&
         typeof data.temperature === "number" &&

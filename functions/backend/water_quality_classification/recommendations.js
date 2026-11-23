@@ -1,5 +1,6 @@
 "use strict";
 
+const { SENSOR_THRESHOLDS } = require("./thresholds");
 const { insightFor } = require("./insights");
 
 // ──────────────────────────────────────────────
@@ -11,7 +12,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   const [temperature, ph, doValue, turbidity] = values;
   const actions = [];
 
-  // Flags to prevent duplicate / conflicting water-addition prompts
+  // Flags to prevent duplicate / conflicting actions
   let needsWaterChange = false;   // a water-change action was already added for pH
   let waterRefillHandled = false; // any water-addition action was already added
   let suspendFeeding = false;     // feeding should be suspended due to critical params
@@ -24,20 +25,20 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   const wlDropCm = wlFalling ? waterLevelTrend.absChangeCm.toFixed(1) : null;
 
   // ── Priority 1: Dissolved Oxygen (Most urgent for crayfish) ──
-  // Science: DO < 3 mg/L = critical hypoxia. Crayfish surface-breathe and die rapidly.
+  // Science: DO < 2.0 mg/L = critical lethal hypoxia. Crayfish surface-breathe and die rapidly.
   // Feeding during hypoxia worsens DO further (decomposing uneaten feed consumes 30–50% DO).
-  if (doValue < 3) {
+  if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow) {
     actions.push(
       "Turn on all aerators immediately (keep airstones 2–3 inches off the trapond floor to avoid re-suspending bottom sludge). " +
       "Suspend feeding until DO recovers above 5 mg/L — uneaten feed accelerates oxygen depletion. " +
       "Monitor oxygen every 15–30 minutes."
     );
     suspendFeeding = true;
-  } else if (doValue < 5) {
+  } else if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.goodLow) {
     actions.push("Turn on aerators and monitor oxygen levels closely until readings stabilize above 5 mg/L.");
   } else if (sensorTrends) {
     const doTrend = sensorTrends.dissolved_oxygen;
-    if (doTrend && doTrend.direction === "falling" && doValue >= 5) {
+    if (doTrend && doTrend.direction === "falling" && doValue >= SENSOR_THRESHOLDS.dissolved_oxygen.goodLow) {
       actions.push("Monitor oxygen closely and prepare to turn on aerators if the downward trend continues.");
     }
   }
@@ -45,7 +46,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   // ── Priority 2: Critical DO + Critical Turbidity (Compound risk) ──
   // Science: High turbidity = high organic load = additional oxygen sink.
   // Avoid stirring bottom sludge when DO is already critical.
-  if (doValue < 3 && perSensorClasses[3] === 0) {
+  if (doValue < SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow && perSensorClasses[3] === 0) {
     actions.push(
       "Turbidity is also critically high — avoid deep siphoning or stirring the trapond bottom while DO is critical, " +
       "as this re-suspends oxygen-consuming organic matter. Resume bottom siphoning only after DO recovers."
@@ -59,8 +60,8 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   if (perSensorClasses[1] === 0) {
     needsWaterChange = true;
     waterRefillHandled = true;
-    if (ph < 6.5) {
-      // Acidic critical: cause = organic waste decomposition / CO₂
+    if (ph < SENSOR_THRESHOLDS.ph_level.criticalLow) {
+      // Acidic critical (< 5.5): cause = organic waste decomposition / CO₂
       if (!suspendFeeding) {
         actions.push("Suspend feeding immediately to stop adding organic load.");
         suspendFeeding = true;
@@ -71,7 +72,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
         "Avoid sudden chemical pH adjusters — abrupt pH swings cause molting shock in crayfish."
       );
     } else {
-      // Alkaline critical: cause = algae bloom / source water
+      // Alkaline critical (> 9.5): cause = algae bloom / source water
       if (!suspendFeeding) {
         actions.push("Suspend feeding (high pH significantly increases ammonia toxicity to crayfish).");
         suspendFeeding = true;
@@ -84,14 +85,14 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
       );
     }
   } else if (perSensorClasses[1] === 1) {
-    if (ph < 7) {
+    if (ph < SENSOR_THRESHOLDS.ph_level.goodLow) {
       // Mildly acidic: cause = organic buildup / excess CO₂
       actions.push(
         "Siphon uneaten feeds and decaying organic matter from the trapond bottom " +
         "(decomposition is producing CO₂ and organic acids that lower pH). " +
         "Avoid sudden chemical pH adjusters."
       );
-    } else if (ph > 8.5) {
+    } else if (ph > SENSOR_THRESHOLDS.ph_level.goodHigh) {
       // Mildly alkaline: cause = algae / source water
       actions.push(
         "Check for visible algae growth on trapond walls and water surface — algae photosynthesis is the most common cause of rising pH. " +
@@ -119,7 +120,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   // Note: Water additions here always specify "aged/pre-aerated" to prevent pH/DO shock.
   // Consolidated: skip standalone refill if water change was already recommended for pH.
   if (perSensorClasses[0] === 0) {
-    if (temperature >= 34) {
+    if (temperature >= SENSOR_THRESHOLDS.temperature.criticalHigh) {
       if (!waterRefillHandled) {
         actions.push(
           "Maximize aeration and provide shade over the trapond. " +
@@ -141,9 +142,9 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
       }
     }
   } else if (perSensorClasses[0] === 1) {
-    if (temperature > 29) {
+    if (temperature > SENSOR_THRESHOLDS.temperature.goodHigh) {
       actions.push("Provide shade over the trapond and increase surface aeration to cool the water.");
-    } else if (temperature < 26) {
+    } else if (temperature < SENSOR_THRESHOLDS.temperature.goodLow) {
       if (wlFalling && !waterRefillHandled) {
         actions.push(
           `Water level is dropping (down ${wlDropCm} cm). Shallow water loses heat faster — ` +
@@ -176,7 +177,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
   // ── Standalone Water Level Warning ──
   // Only fires if wlFalling was not already addressed by Temperature or pH sections.
   if (wlFalling && !waterRefillHandled) {
-    const shallowNote = temperature > 29
+    const shallowNote = temperature > SENSOR_THRESHOLDS.temperature.goodHigh
       ? "Shallow water heats up faster — monitor temperature closely."
       : "Shallow water fluctuates in temperature faster — monitor readings closely.";
     actions.push(
@@ -186,14 +187,20 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
     );
   }
 
-  // ── Priority 5: Turbidity ──
+  // ── Priority 5: Turbidity (Deduplicated with pH/DO feeding actions) ──
   if (perSensorClasses[3] === 0) {
     // Only add siphon advice here if DO is NOT also critical (compound case handled in Priority 2 above)
-    if (doValue >= 3) {
-      actions.push(
-        "Clean filter pads and siphon waste and uneaten feeds from the trapond bottom. " +
-        "Reduce feeding frequency until turbidity improves."
-      );
+    if (doValue >= SENSOR_THRESHOLDS.dissolved_oxygen.criticalLow) {
+      if (!suspendFeeding) {
+        actions.push(
+          "Clean filter pads and siphon waste and uneaten feeds from the trapond bottom. " +
+          "Suspend feeding until turbidity and organic waste stabilize."
+        );
+        suspendFeeding = true;
+      } else {
+        // If feeding is already suspended from pH or DO, omit redundant feeding alert
+        actions.push("Clean filter pads and siphon waste and uneaten feeds from the trapond bottom.");
+      }
     }
   } else if (perSensorClasses[3] === 1) {
     actions.push("Siphon uneaten feeds and waste from the trapond bottom, and clean filter pads.");
@@ -204,14 +211,7 @@ function recommendationFor(prediction, rangeClass, values, perSensorClasses, sen
     }
   }
 
-  // ── Priority 6: Feeding Suspension Summary (if not already stated above) ──
-  // Only add this if suspendFeeding was set by pH/DO but no explicit suspend message was pushed for turbidity.
-  if (suspendFeeding && perSensorClasses[3] === 0 && doValue >= 3) {
-    // Turbidity critical + suspended feeding already from pH, reinforce
-    actions.push("Reduce or suspend feeding until water quality improves to prevent further organic load.");
-  }
-
-  // ── Priority 7: All Good / Routine ──
+  // ── Priority 6: All Good / Routine ──
   if (actions.length === 0) {
     actions.push("Continue routine monitoring, regular feeding, and normal trapond care.");
   }
