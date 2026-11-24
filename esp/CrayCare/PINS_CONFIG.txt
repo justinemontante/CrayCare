@@ -159,8 +159,8 @@ Sensor powered at 5V — verify each before connecting:
 ⚠️  IMPORTANT: DFRobot SEN0189 specifies analog output up to 4.5V.
     For 5V module power, use the latest reported 2.2kΩ upper + 3.3kΩ
     lower divider (output -> 2.2k -> ADC node; ADC node -> 3.3k -> GND).
-    After adding ANY divider, reteach turbclear + turbdirty: the NTU
-    scale interpolates between the taught voltages, so old taught
+    After adding ANY divider, reteach the active TURBCAL point set: the NTU
+    map interpolates between the taught voltages, so old taught
     values (taken undivided) become wrong the moment a divider lands.
 
 SEPARATE 5V ADAPTER RULES (sensors, ultrasonics, servo, LCD)
@@ -190,7 +190,7 @@ HOW TO CONNECT EACH RESISTOR (signal -> resistors -> ESP -> GND)
     within ESP32 input limits. Recalibrate after any signal-path change.
   Turbidity (GPIO34, 5V supply), 2.2k + 3.3k:
     module SIG -> 2.2k -> GPIO34; GPIO34 -> 3.3k -> GND.
-    Then reteach turbclear + turbdirty (see above). No code change:
+    Then reteach the active TURBCAL point set (see above). No code change:
     the 2:1 scale is absorbed by the taught points.
   DS18B20 module (GPIO4): the previously shared module photo shows a
     resistor marked 472 (nominal 4.7kΩ). If it is wired as a pull-up from
@@ -323,9 +323,11 @@ WIFI (up to 5 profiles saved in NVS)
   RESET_WIFI               Erase every saved profile and restart
 
 CALIBRATION
-  turbclear <V>        Turbidity 0 NTU voltage
-  turbdirty <V>        Turbidity ~500 NTU voltage
-  turbair              Deprecated; clear/dirty two-point map does not use it
+  TURBCAL SHOW             Show active/pending turbidity map
+  TURBCAL MODE 2|3         Start fresh 0/500 or 0/500/1000 NTU calibration
+  TURBCAL 0|500|1000 [V]   Capture stable reference voltage (1000 only in mode 3)
+  turbclear [V]            Legacy alias for the 0 NTU capture
+  turbdirty [V]            Legacy alias for the 500 NTU capture
   phcal7               Calibrate pH 7.0
   phcal4               Calibrate pH 4.0
   doclear              Calibrate DO in air

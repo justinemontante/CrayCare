@@ -311,27 +311,61 @@ SENSOR CALIBRATION
     In CALMODE with CALSTREAM DO selected, shows filtered voltage, estimated
     mg/L, current temperature, and whether the live voltage window is stable.
 
+  dooffset [on|off|value]
+    Works in normal mode and CALMODE. `dooffset <value>`
+    saves and activates a signed output correction in mg/L from -15.00 to
+    +15.00; positive values raise the computed DO reading and negative values
+    lower it. `dooffset` shows the current setting, while `dooffset on|off`
+    toggles the saved correction. The setting is stored directly in NVS and
+    applies to displayed, alerted, Firebase, and history DO readings; it does
+    not change the raw voltage or the DO scale calibration. CALSHOW reports it.
+
   doclear
     In CALMODE with CALSTREAM DO stable (30 s within 10 mV), calibrates at the
     documented 100% saturation reference using the stable-window voltage and
     refreshed water temperature. Prepare the probe/reference using the exact
     procedure for your DO module.
 
-  turbclear [volts]
-    In CALMODE with CALSTREAM TURB stable (10 s within 10 mV), save the
-    stable-window voltage as the clear-water (0 NTU) point. Optional voltage
-    must be within 10 mV of the stable-window average.
+  TURBCAL SHOW
+    Show the active map and any saved-but-incomplete calibration set. This
+    read-only command is available even when calibration mode is OFF.
 
-  turbdirty [volts]
-    Save the stable-window voltage as the dirty-water (500 NTU field reference).
-    Optional voltage must be within 10 mV of the stable-window average. Turbidity
-    mapping uses only these two saved points and is valid when clear voltage is
-    greater than dirty voltage.
+  TURBCAL MODE 2
+    Start a fresh 2-point calibration transaction. Capture certified 0 NTU
+    clear-water and 500 NTU standards; the active map remains in use until both
+    points validate.
+
+  TURBCAL MODE 3
+    Start a fresh 3-point calibration transaction. Capture certified 0, 500,
+    and 1000 NTU standards; the active map remains in use until all three
+    points validate.
+
+  TURBCAL 0 | TURBCAL 500 | TURBCAL 1000
+    With CALMODE ON and CALSTREAM TURB stable (10 s within 10 mV), capture the
+    stable-window voltage for that standard. Point 1000 is only valid in mode
+    3. Each point is staged in NVS, so partial work survives reboot without
+    replacing the current active map. The complete set is activated and saved
+    only when voltages descend with increasing NTU and adjacent points differ
+    by at least 20 mV. If a set fails validation, recapture the offending
+    point(s); the active map remains unchanged.
+
+  TURBCAL 0 <volts> | TURBCAL 500 <volts> | TURBCAL 1000 <volts>
+    Optional explicit voltage must be within the current stable-window
+    tolerance (10 mV) of the stream average; it does not bypass stability.
+
+  turbclear [volts] / turbdirty [volts]
+    Backward-compatible aliases for TURBCAL 0 and TURBCAL 500. They use the
+    active mode unless a new mode was started with TURBCAL MODE.
+
+    Two-point mode linearly maps 0–500 NTU. Three-point mode uses two separate
+    linear segments, 0–500 and 500–1000 NTU. Output is clamped to the active
+    map's range. Voltage direction is validated for this installed sensor
+    (higher voltage at lower NTU). Use verified reference standards for NTU
+    labels; kaolin mass concentration is not itself an NTU calibration.
 
   turbair
-    Deprecated and ignored. Two-point calibration does not detect a dry probe
-    separately. If the air voltage falls inside the clear-to-dirty voltage
-    range, the ESP cannot distinguish air from water using these two points.
+    Deprecated and ignored. The active calibration uses only reference
+    standards in liquid; this command does not define an NTU point.
 
 HC-SR04 WATER LEVEL
   tankheight <cm>

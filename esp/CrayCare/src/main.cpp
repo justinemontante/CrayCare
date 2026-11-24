@@ -49,6 +49,7 @@
 
 #include <Preferences.h>
 #include <time.h>
+#include <math.h>
 #include <stdlib.h>    // atoll()
 #include <string.h>   // strlen(), memmove()
 #include <stddef.h>   // offsetof()
@@ -260,6 +261,7 @@ time_t nextFirebaseSendEpoch = 0;
 time_t nextHistorySlotEndEpoch = 0;
 unsigned long lastFlushTime = 0;
 unsigned long lastBufferedHistoryFlushMs = 0;
+unsigned long lastInflightRecoveryMs = 0;
 
 // ─── Offline buffer (LittleFS store-and-forward) ─────────────────────
 // History entries that fail to upload (WiFi outage / Firebase unreachable)
@@ -267,8 +269,10 @@ unsigned long lastBufferedHistoryFlushMs = 0;
 // returns, loop() flushes up to two oldest rows per batch and deletes them
 // only after Firestore confirms the write (or finds a duplicate document).
 #define BUFFER_PATH "/buf/history.jsonl"
+#define INFLIGHT_DIR "/buf/inflight"
 bool littlefsMounted = false;
 bool feederLogsReady = true;
+static bool inflightRecoveryPending = false;
 
 size_t countBufferedEntries();  // forward decl (used by initOfflineBuffer)
 
@@ -285,6 +289,7 @@ void migrateFeederLogsToSD();
 bool sdMounted = false;
 #define SD_BUFFER_PATH "/craycare/history.jsonl"
 #define SD_BUFFER_TMP "/craycare/history.tmp"
+static bool recoverBufferCompaction(fs::FS& fs, const char* path, const char* tempPath);
 
 // Active write backend: SD card when present, otherwise LittleFS.
 static inline fs::FS& bufFS() { return sdMounted ? (fs::FS&)SD : (fs::FS&)LittleFS; }
@@ -308,8 +313,10 @@ static bool ensureFeederLogDirectory() {
 }
 
 void initOfflineBuffer() {
-  if (!LittleFS.begin(true)) {           // formatOnFail on the spiffs partition
-    Serial.println("[BUF] LittleFS mount FAILED — LittleFS buffering disabled");
+  // Never auto-format here: a failed mount may mean a damaged but recoverable
+  // offline history queue. Keep the data partition intact and use SD if ready.
+  if (!LittleFS.begin(false)) {
+    Serial.println("[BUF] LittleFS mount FAILED — preserving partition; LittleFS buffering disabled");
     littlefsMounted = false;
   } else {
     littlefsMounted = true;
@@ -328,8 +335,18 @@ void initOfflineBuffer() {
         littlefsMounted = false;
       }
     }
+    if (littlefsMounted && !LittleFS.exists(INFLIGHT_DIR)) {
+      if (!LittleFS.mkdir(INFLIGHT_DIR)) {
+        Serial.println("[HISTORY] Could not create LittleFS in-flight directory");
+      }
+    }
+    if (littlefsMounted && LittleFS.exists(INFLIGHT_DIR)) {
+      inflightRecoveryPending = true;
+    }
   }
   initSDCard();  // optional — LittleFS remains the fallback when no card is present
+  if (sdMounted) recoverBufferCompaction(SD, SD_BUFFER_PATH, SD_BUFFER_TMP);
+  if (littlefsMounted) recoverBufferCompaction(LittleFS, BUFFER_PATH, "/buf/history.tmp");
   Serial.printf("[BUF] backend=%s buffered=%u\n",
                 sdMounted ? "SD" : "LittleFS", (unsigned)countBufferedEntries());
 }
@@ -511,6 +528,36 @@ static bool isHistoryDateKey(const String& token) {
   return true;
 }
 
+// Canonical v2 row:
+//   @<captureMs>\t<Manila YYYY-MM-DD>\t[<recordedAtZ>\t]<Firestore JSON>
+// The explicit day key is the same folder date used on upload. Older rows
+// without it are still parsed by uploadBufferedEntry().
+static String buildQueuedHistoryLine(const String& jsonLine, long long capturedAtMs) {
+  if (capturedAtMs <= 0) return jsonLine;
+  String recordedAt;
+  FirebaseJson payload;
+  FirebaseJsonData field;
+  if (payload.setJsonData(jsonLine) &&
+      payload.get(field, "fields/recorded_at/timestampValue")) {
+    recordedAt = field.stringValue;
+  }
+  if (recordedAt.isEmpty() && capturedAtMs >= 1577836800000LL) {
+    recordedAt = firestoreTimestampString(
+        static_cast<time_t>(capturedAtMs / 1000LL));
+  }
+  char prefix[32];
+  snprintf(prefix, sizeof(prefix), "@%llu\t",
+           static_cast<unsigned long long>(capturedAtMs));
+  String queuedLine(prefix);
+  char dateKey[11] = {0};
+  if (manilaDateKeyFromMs(capturedAtMs, dateKey, sizeof(dateKey))) {
+    queuedLine += String(dateKey) + "\t";
+  }
+  if (!recordedAt.isEmpty()) queuedLine += recordedAt + "\t";
+  queuedLine += jsonLine;
+  return queuedLine;
+}
+
 bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
   if (jsonLine.length() < 10) return false;
   if (capturedAtMs > 0 && bufferContainsCapture(capturedAtMs)) return true;
@@ -523,34 +570,7 @@ bool bufferAppend(const String& jsonLine, long long capturedAtMs = 0) {
   }
   File f = fs.open(bufPath(), FILE_APPEND);
   if (!f) return false;
-  // Canonical v2 row:
-  //   @<captureMs>\t<Manila YYYY-MM-DD>\t[<recordedAtZ>\t]<Firestore JSON>
-  // The explicit day key is the same folder date used on upload. Older rows
-  // without it are still parsed by uploadBufferedEntry().
-  String queuedLine = jsonLine;
-  if (capturedAtMs > 0) {
-    String recordedAt;
-    FirebaseJson payload;
-    FirebaseJsonData field;
-    if (payload.setJsonData(jsonLine) &&
-        payload.get(field, "fields/recorded_at/timestampValue")) {
-      recordedAt = field.stringValue;
-    }
-    if (recordedAt.isEmpty() && capturedAtMs >= 1577836800000LL) {
-      recordedAt = firestoreTimestampString(
-          static_cast<time_t>(capturedAtMs / 1000LL));
-    }
-    char prefix[32];
-    snprintf(prefix, sizeof(prefix), "@%llu\t",
-             static_cast<unsigned long long>(capturedAtMs));
-    queuedLine = String(prefix);
-    char dateKey[11] = {0};
-    if (manilaDateKeyFromMs(capturedAtMs, dateKey, sizeof(dateKey))) {
-      queuedLine += String(dateKey) + "\t";
-    }
-    if (!recordedAt.isEmpty()) queuedLine += recordedAt + "\t";
-    queuedLine += jsonLine;
-  }
+  const String queuedLine = buildQueuedHistoryLine(jsonLine, capturedAtMs);
   const size_t previousSize = f.size();
   const size_t written = f.println(queuedLine);
   f.flush();
@@ -587,6 +607,7 @@ static bool bufferContainsCapture(long long capturedAtMs) {
 static bool dropFirstIn(fs::FS& fs, const char* path, const char* tempPath,
                         size_t entriesToDrop) {
   if (entriesToDrop == 0) return true;
+  recoverBufferCompaction(fs, path, tempPath);
   if (!fs.exists(path)) return false;
   File src = fs.open(path, "r");
   if (!src) return false;
@@ -594,18 +615,39 @@ static bool dropFirstIn(fs::FS& fs, const char* path, const char* tempPath,
   if (!dst) { src.close(); return false; }
 
   size_t dropped = 0;
+  bool writeFailed = false;
   while (src.available()) {
     String line = src.readStringUntil('\n');
     line.trim();
     if (line.length() <= 10) continue;
     if (dropped < entriesToDrop) { dropped++; continue; }
-    dst.println(line);
+    if (dst.println(line) < line.length() + 1) writeFailed = true;
   }
   src.close();
   dst.close();
-  if (dropped != entriesToDrop) { fs.remove(tempPath); return false; }
-  fs.remove(path);
-  return fs.rename(tempPath, path);
+  if (dropped != entriesToDrop || writeFailed) { fs.remove(tempPath); return false; }
+  const String backupPath = String(tempPath) + ".bak";
+  if (fs.exists(backupPath)) fs.remove(backupPath);
+  if (!fs.rename(path, backupPath)) { fs.remove(tempPath); return false; }
+  if (!fs.rename(tempPath, path)) {
+    fs.rename(backupPath, path);
+    fs.remove(tempPath);
+    return false;
+  }
+  fs.remove(backupPath);
+  return true;
+}
+
+static bool recoverBufferCompaction(fs::FS& fs, const char* path,
+                                    const char* tempPath) {
+  const String backupPath = String(tempPath) + ".bak";
+  if (!fs.exists(path) && fs.exists(backupPath)) {
+    if (!fs.rename(backupPath, path)) return false;
+  } else if (fs.exists(path) && fs.exists(backupPath)) {
+    fs.remove(backupPath); // canonical queue already contains the completed rewrite
+  }
+  if (fs.exists(tempPath)) fs.remove(tempPath);
+  return fs.exists(path) || !fs.exists(backupPath);
 }
 
 bool bufferDropFirst(size_t entriesToDrop, bool fromSd) {
@@ -1183,12 +1225,18 @@ unsigned long blowerPostRunStartedMs = 0;
 #define ENABLE_FEED_LEVEL_SENSOR 1
 
 // ============================================================
-//  CALIBRATED TURBIDITY THRESHOLDS
-//  Two-point field calibration: clear water voltage must exceed dirty voltage.
-//  No independent air/no-water classification is used in this mode.
+//  TURBIDITY CALIBRATION
+//  Active map is either 0/500 NTU (2-point) or 0/500/1000 NTU (3-point).
 // ============================================================
 float turbidityVClear = 1.50;          // Voltage for clear water (0 NTU)
-float turbidityVDirty = 1.40;          // Voltage for very dirty water (500 NTU)
+float turbidityVDirty = 1.40;          // Voltage for 500 NTU
+float turbidityV1000 = -1.0f;          // Voltage for 1000 NTU
+uint8_t turbidityCalMode = 2;          // Active calibration point count
+uint8_t turbidityPendingMode = 0;      // In-progress calibration; 0 = none
+uint8_t turbidityPendingMask = 0;
+float turbidityPendingV0 = -1.0f;
+float turbidityPendingV500 = -1.0f;
+float turbidityPendingV1000 = -1.0f;
 
 float tempCriticalLow = 24.0;
 float tempCriticalHigh = 30.0;
@@ -1214,6 +1262,9 @@ float feedLevelFullVoltage = 2.80f;
 
 float doVoltageScale = 4.0;
 float doVoltageOffset = 0.0;
+// Optional post-calibration correction in mg/L; positive raises, negative lowers DO.
+float doReadingOffset = 0.0f;
+bool doReadingOffsetEnabled = false;
 float phVoltageSlope = -5.70;
 float phVoltageIntercept = 21.34;
 // Optional empirical correction after the two-point voltage-to-pH fit.
@@ -1245,6 +1296,7 @@ float waterLevelCmMax = 23.0;
 #define CAL_PH_STABLE_SPREAD_V 0.010f
 #define CAL_DO_STABLE_SPREAD_V 0.010f
 #define CAL_TURB_STABLE_SPREAD_V 0.010f
+#define TURB_CAL_MIN_POINT_SPAN_V 0.020f
 #define CAL_STABLE_MAX_BLOCKS 3200  // >60 s at the minimum 20 ms stream interval
 #define CAL_CAPTURE_MATCH_V 0.010f
 #define SENSOR_FILTER_WINDOW 5
@@ -1412,6 +1464,12 @@ struct HistoryCheckpointFile {
 constexpr uint32_t HISTORY_FILE_MAGIC = 0x43524648; // "CRFH"
 constexpr uint32_t HISTORY_FILE_VERSION = 1;
 
+enum HistoryPersistence : uint8_t {
+  HISTORY_PERSIST_RAM = 0,
+  HISTORY_PERSIST_INFLIGHT = 1,
+  HISTORY_PERSIST_OFFLINE = 2,
+};
+
 struct HistoryWindowSnapshot {
   int64_t capturedAtMs;
   int64_t assignmentAtMs;
@@ -1429,6 +1487,7 @@ struct HistoryWindowSnapshot {
   uint16_t waterLevelN;
   float feedLevelSum;
   uint16_t feedLevelN;
+  uint8_t persistence = HISTORY_PERSIST_RAM;
 };
 
 // The sensor task closes each fixed wall-clock window independently of Wi-Fi
@@ -1738,6 +1797,108 @@ static bool queueCompletedWindowSnapshot(const HistoryWindowSnapshot& window) {
   return true;
 }
 
+static bool canSendHistoryDirectNow() {
+  return WiFi.status() == WL_CONNECTED && !cloudModeForcedOffline() &&
+      !cloudOutage && firebaseReady && hasCurrentTankAssignment();
+}
+
+static String inflightPath(long long capturedAtMs) {
+  char name[40];
+  snprintf(name, sizeof(name), INFLIGHT_DIR "/%llu.row",
+           static_cast<unsigned long long>(capturedAtMs));
+  return String(name);
+}
+
+static bool inflightCapturedMsFromPath(const String& path, long long& capturedAtMs) {
+  const int slash = path.lastIndexOf('/');
+  String name = slash >= 0 ? path.substring(slash + 1) : path;
+  if (!name.endsWith(".row")) return false;
+  name = name.substring(0, name.length() - 4);
+  if (name.length() == 0) return false;
+  capturedAtMs = atoll(name.c_str());
+  return capturedAtMs >= 1577836800000LL;
+}
+
+static size_t countInflightFiles() {
+  if (!littlefsMounted || !LittleFS.exists(INFLIGHT_DIR)) return 0;
+  File dir = LittleFS.open(INFLIGHT_DIR);
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    return 0;
+  }
+  size_t count = 0;
+  for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    String path = file.path();
+    if (path.endsWith(".row")) count++;
+    file.close();
+  }
+  dir.close();
+  return count;
+}
+
+static bool loadInflightLine(const String& path, String& line) {
+  if (!littlefsMounted) return false;
+  File file = LittleFS.open(path, "r");
+  if (!file) return false;
+  line = file.readStringUntil('\n');
+  line.trim();
+  file.close();
+  return line.length() > 10;
+}
+
+static void deleteInflightHistory(long long capturedAtMs) {
+  if (!littlefsMounted) return;
+  const String path = inflightPath(capturedAtMs);
+  if (LittleFS.exists(path)) LittleFS.remove(path);
+  const String temp = path + ".tmp";
+  if (LittleFS.exists(temp)) LittleFS.remove(temp);
+}
+
+static bool writeInflightHistory(const HistoryWindowSnapshot& window) {
+  if (!littlefsMounted || window.capturedAtMs < 1577836800000LL) return false;
+  if (!LittleFS.exists(INFLIGHT_DIR) && !LittleFS.mkdir(INFLIGHT_DIR)) return false;
+  constexpr size_t MAX_INFLIGHT_FILES = 24;
+  if (countInflightFiles() >= MAX_INFLIGHT_FILES) return false;
+
+  FirebaseJson content;
+  buildHistoryPayloadFromSnapshot(content, window);
+  const String payload = content.raw();
+  if (payload.length() == 0 || payload.length() > 4096) return false;
+  const String line = buildQueuedHistoryLine(payload, window.capturedAtMs);
+  if (line.length() < 10) return false;
+
+  const String path = inflightPath(window.capturedAtMs);
+  const String temp = path + ".tmp";
+  if (LittleFS.exists(temp)) LittleFS.remove(temp);
+  File out = LittleFS.open(temp, "w");
+  if (!out) return false;
+  const size_t written = out.println(line);
+  out.flush();
+  const bool writeOk = written >= line.length() + 1 && out.size() == line.length() + 1;
+  out.close();
+  if (!writeOk) {
+    LittleFS.remove(temp);
+    return false;
+  }
+  if (LittleFS.exists(path) && !LittleFS.remove(path)) {
+    LittleFS.remove(temp);
+    return false;
+  }
+  if (!LittleFS.rename(temp, path)) {
+    LittleFS.remove(temp);
+    return false;
+  }
+  return true;
+}
+
+static bool moveInflightToOfflineQueue(const String& line, long long capturedAtMs) {
+  if (!bufferContainsCapture(capturedAtMs) && !bufferAppend(line, 0)) {
+    return false;
+  }
+  deleteInflightHistory(capturedAtMs);
+  return true;
+}
+
 static void flushHistoryBeforeRestart() {
   if (!saveHistoryWindowCheckpoint()) {
     Serial.println("[HISTORY] Could not checkpoint in-progress window before restart");
@@ -1775,15 +1936,28 @@ void finalizeHistoryWindowIfDueUnlocked(time_t now) {
     snapshot.waterLevelSum = winWaterLevelSum; snapshot.waterLevelN = winWaterLevelN;
     snapshot.feedLevelSum = winFeedLevelSum; snapshot.feedLevelN = winFeedLevelN;
 
-    // Persist before touching RAM state. If the device resets after this
-    // point, the exact Firestore payload is already replayable from disk.
-    if (!queueCompletedWindowSnapshot(snapshot)) {
-      const unsigned long ms = millis();
-      if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
-        lastHistoryQueueFullLogMs = ms;
-        Serial.println("[HISTORY] Durable queue write failed; retaining samples and slot for retry.");
+    const bool directReady = canSendHistoryDirectNow();
+    if (directReady) {
+      if (writeInflightHistory(snapshot)) {
+        snapshot.persistence = HISTORY_PERSIST_INFLIGHT;
+      } else {
+        snapshot.persistence = HISTORY_PERSIST_RAM;
+        const unsigned long ms = millis();
+        if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
+          lastHistoryQueueFullLogMs = ms;
+          Serial.println("[HISTORY] In-flight journal unavailable; direct upload will proceed.");
+        }
       }
-      return;
+    } else {
+      if (!queueCompletedWindowSnapshot(snapshot)) {
+        const unsigned long ms = millis();
+        if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
+          lastHistoryQueueFullLogMs = ms;
+          Serial.println("[HISTORY] Durable queue write failed; retaining samples and slot for retry.");
+        }
+        return;
+      }
+      snapshot.persistence = HISTORY_PERSIST_OFFLINE;
     }
 
     if (completedHistoryCount < HISTORY_READY_QUEUE_CAP) {
@@ -1792,8 +1966,9 @@ void finalizeHistoryWindowIfDueUnlocked(time_t now) {
       completedHistoryWindows[tail] = snapshot;
       completedHistoryCount++;
     } else {
-      // The row is already durable; the periodic flush will still replay it
-      // even when the small RAM trigger queue is full.
+      if (snapshot.persistence == HISTORY_PERSIST_INFLIGHT) {
+        inflightRecoveryPending = true;
+      }
       const unsigned long ms = millis();
       if (ms - lastHistoryQueueFullLogMs >= 60000UL) {
         lastHistoryQueueFullLogMs = ms;
@@ -2029,10 +2204,14 @@ bool saveSensorCalibrations() {
   saved &= prefs.putInt("phFitMode", phFitMode) == sizeof(int32_t);
   saved &= prefs.putFloat("doScale", doVoltageScale) == sizeof(float);
   saved &= prefs.putFloat("doOffset", doVoltageOffset) == sizeof(float);
+  saved &= prefs.putFloat("doReadOff", doReadingOffset) == sizeof(float);
+  saved &= prefs.putBool("doReadOn", doReadingOffsetEnabled);
   saved &= prefs.putFloat("tankHeight", waterSensorHeightCm) == sizeof(float);
   saved &= prefs.putFloat("tankDepth", waterLevelCmMax) == sizeof(float);
   saved &= prefs.putFloat("turbClear", turbidityVClear) == sizeof(float);
   saved &= prefs.putFloat("turbDirty", turbidityVDirty) == sizeof(float);
+  saved &= prefs.putFloat("turbV1000", turbidityV1000) == sizeof(float);
+  saved &= prefs.putInt("turbMode", turbidityCalMode) == sizeof(int32_t);
   saved &= prefs.putFloat("feedEmpty", feedLevelEmptyVoltage) == sizeof(float);
   saved &= prefs.putFloat("feedFull", feedLevelFullVoltage) == sizeof(float);
   saved &= prefs.putFloat("hopEmpty", hopperEmptyCm) == sizeof(float);
@@ -2042,6 +2221,18 @@ bool saveSensorCalibrations() {
   if (gateCloseAngleConfigured)
     saved &= prefs.putInt("gateClose", gateCloseAngle) == sizeof(int32_t);
   saved &= prefs.putInt("gateHold", gateHoldMs) == sizeof(int32_t);
+  prefs.end();
+  return saved;
+}
+
+bool saveTurbidityPendingState() {
+  if (!prefs.begin("sensorcal", false)) return false;
+  bool saved = true;
+  saved &= prefs.putInt("turbPendMode", turbidityPendingMode) == sizeof(int32_t);
+  saved &= prefs.putInt("turbPendMask", turbidityPendingMask) == sizeof(int32_t);
+  saved &= prefs.putFloat("turbPendV0", turbidityPendingV0) == sizeof(float);
+  saved &= prefs.putFloat("turbPendV500", turbidityPendingV500) == sizeof(float);
+  saved &= prefs.putFloat("turbPendV1000", turbidityPendingV1000) == sizeof(float);
   prefs.end();
   return saved;
 }
@@ -2065,10 +2256,22 @@ void loadSensorCalibrations() {
   if (phFitMode != 3) phFitMode = 2;
   doVoltageScale = prefs.getFloat("doScale", doVoltageScale);
   doVoltageOffset = prefs.getFloat("doOffset", doVoltageOffset);
+  doReadingOffset = prefs.getFloat("doReadOff", doReadingOffset);
+  doReadingOffsetEnabled = prefs.getBool("doReadOn", doReadingOffset != 0.0f);
   waterSensorHeightCm = prefs.getFloat("tankHeight", waterSensorHeightCm);
   waterLevelCmMax = prefs.getFloat("tankDepth", waterLevelCmMax);
   turbidityVClear = prefs.getFloat("turbClear", turbidityVClear);
   turbidityVDirty = prefs.getFloat("turbDirty", turbidityVDirty);
+  if (prefs.isKey("turbV1000")) turbidityV1000 = prefs.getFloat("turbV1000", turbidityV1000);
+  const int savedTurbidityMode = prefs.isKey("turbMode") ? prefs.getInt("turbMode", 2) : 2;
+  turbidityCalMode = (savedTurbidityMode == 3) ? 3 : 2;
+  const int savedTurbidityPendingMode = prefs.isKey("turbPendMode") ? prefs.getInt("turbPendMode", 0) : 0;
+  turbidityPendingMode = (savedTurbidityPendingMode == 2 || savedTurbidityPendingMode == 3)
+      ? static_cast<uint8_t>(savedTurbidityPendingMode) : 0;
+  turbidityPendingMask = static_cast<uint8_t>((prefs.isKey("turbPendMask") ? prefs.getInt("turbPendMask", 0) : 0) & 0x07);
+  if (prefs.isKey("turbPendV0")) turbidityPendingV0 = prefs.getFloat("turbPendV0", -1.0f);
+  if (prefs.isKey("turbPendV500")) turbidityPendingV500 = prefs.getFloat("turbPendV500", -1.0f);
+  if (prefs.isKey("turbPendV1000")) turbidityPendingV1000 = prefs.getFloat("turbPendV1000", -1.0f);
   feedLevelEmptyVoltage = prefs.getFloat("feedEmpty", feedLevelEmptyVoltage);
   feedLevelFullVoltage = prefs.getFloat("feedFull", feedLevelFullVoltage);
   hopperEmptyCm = prefs.getFloat("hopEmpty", hopperEmptyCm);
@@ -2144,9 +2347,14 @@ float updatePHFitVoltage(float batchVoltage) {
 }
 
 bool turbidityCalibrationValid() {
-  return isfinite(turbidityVClear) && isfinite(turbidityVDirty) &&
-      turbidityVClear <= 3.25f && turbidityVDirty > 0.0f &&
-      turbidityVClear > turbidityVDirty;
+  if (!isfinite(turbidityVClear) || turbidityVClear <= 0.0f ||
+      turbidityVClear > 3.25f || !isfinite(turbidityVDirty) ||
+      turbidityVDirty <= 0.0f || turbidityVDirty > 3.25f ||
+      turbidityVClear - turbidityVDirty < TURB_CAL_MIN_POINT_SPAN_V) return false;
+  if (turbidityCalMode == 2) return true;
+  return isfinite(turbidityV1000) && turbidityV1000 > 0.0f &&
+      turbidityV1000 <= 3.25f &&
+      turbidityVDirty - turbidityV1000 >= TURB_CAL_MIN_POINT_SPAN_V;
 }
 
 unsigned long calibrationStableWindowMs(uint8_t sensor) {
@@ -2168,11 +2376,8 @@ float calibrationStableSpreadV(uint8_t sensor) {
 }
 
 // ============================================================
-//  TURBIDITY: VOLTAGE -> NTU CONVERSION
-//  Based on calibrated field data:
-//    1.6V =   0 NTU  (clear water)
-//    1.4V = 500 NTU  (dirty)
-//    NTU = (turbidityVClear - voltage) * 2500
+//  TURBIDITY: voltage decreases as turbidity increases on this sensor.
+//  2-point mode interpolates 0-500 NTU; 3-point mode uses two linear segments.
 // ============================================================
 TurbidityResult classifyTurbidity(float v) {
   TurbidityResult r;
@@ -2183,8 +2388,15 @@ TurbidityResult classifyTurbidity(float v) {
     return r;
   }
 
-  r.ntu = (turbidityVClear - v) * 500.0f / (turbidityVClear - turbidityVDirty);
-  r.ntu = constrain(r.ntu, 0.0f, NTU_MAX);
+  if (turbidityCalMode == 3 && v < turbidityVDirty) {
+    r.ntu = 500.0f + (turbidityVDirty - v) * 500.0f /
+        (turbidityVDirty - turbidityV1000);
+  } else {
+    r.ntu = (turbidityVClear - v) * 500.0f /
+        (turbidityVClear - turbidityVDirty);
+  }
+  const float rangeMax = turbidityCalMode == 3 ? NTU_MAX : 500.0f;
+  r.ntu = constrain(r.ntu, 0.0f, rangeMax);
   r.valid = true;
 
   return r;
@@ -2822,7 +3034,8 @@ void buildFirestorePayload(FirebaseJson &json, bool includeTimestamp, time_t cap
 
     if (ENABLE_PH_SENSOR) {
       json.set("fields/ph_level/doubleValue",
-               (liveSensorSnapshot.ready && liveSensorSnapshot.phValid ? liveSensorSnapshot.ph : -1.0f));
+               liveSensorSnapshot.ready && liveSensorSnapshot.phValid
+                   ? liveSensorSnapshot.ph : -1.0f);
     }
 
     if (ENABLE_WATER_LEVEL_SENSOR) {
@@ -2957,15 +3170,25 @@ bool sendLatestToFirestore() {
   return latestOk;
 }
 
+static bool buildHistoryLineFromSnapshot(const HistoryWindowSnapshot& window,
+                                         String& line) {
+  FirebaseJson content;
+  buildHistoryPayloadFromSnapshot(content, window);
+  const String payload = content.raw();
+  if (payload.length() == 0 || payload.length() > 4096) return false;
+  line = buildQueuedHistoryLine(payload, window.capturedAtMs);
+  return line.length() > 10;
+}
+
+static bool queueHistoryLineIfMissing(const String& line, long long capturedAtMs) {
+  if (bufferContainsCapture(capturedAtMs)) return true;
+  return bufferAppend(line, 0);
+}
+
 // ─── Write history entry to Firestore ───────────────────────────────
-// History goes directly to its canonical day folder. If direct validation
-// fails, keep the payload in the durable local queue; the uploader will retry
-// only while its captured assignment still matches the current assignment.
+// Online windows use Firebase first and LittleFS only as an in-flight guard.
+// Offline rows stay on SD/LittleFS until the uploader drains them.
 bool sendHistoryToFirestore(const HistoryWindowSnapshot& window) {
-  // finalizeHistoryWindowIfDueUnlocked() already wrote this exact payload to
-  // the durable queue before advancing the window. Only rebuild/re-append for
-  // snapshots restored by older code paths; bufferAppend() dedupes by capture
-  // time, so retries can never create a second row or document.
   const long long capturedMs = window.capturedAtMs;
   const time_t capturedAt = static_cast<time_t>(capturedMs / 1000LL);
   if (capturedMs < 1577836800000LL ||
@@ -2973,15 +3196,48 @@ bool sendHistoryToFirestore(const HistoryWindowSnapshot& window) {
     Serial.println("[HISTORY] Missing valid capture date; keeping completed window for retry");
     return false;
   }
-  if (!bufferContainsCapture(capturedMs)) {
-    FirebaseJson content;
-    buildHistoryPayloadFromSnapshot(content, window);
-    const String payload = content.raw();
-    if (payload.length() == 0 || payload.length() > 4096) {
-      Serial.println("[HISTORY] Could not queue completed window: payload is empty or exceeds 4 KB");
+
+  if (window.persistence == HISTORY_PERSIST_INFLIGHT ||
+      window.persistence == HISTORY_PERSIST_RAM) {
+    String line;
+    if (!buildHistoryLineFromSnapshot(window, line)) {
+      Serial.println("[HISTORY] Could not build completed window payload");
       return false;
     }
-    if (!bufferAppend(payload, capturedMs)) {
+    if (canSendHistoryDirectNow() && uploadBufferedEntry(line)) {
+      if (window.persistence == HISTORY_PERSIST_INFLIGHT) {
+        deleteInflightHistory(capturedMs);
+      }
+      Serial.printf("[HISTORY] Direct capture %s sent\n",
+                    firestoreTimestampString(capturedAt).c_str());
+      return true;
+    }
+    if (window.persistence == HISTORY_PERSIST_INFLIGHT) {
+      if (!moveInflightToOfflineQueue(line, capturedMs)) {
+        inflightRecoveryPending = true;
+        Serial.println("[HISTORY] Direct upload failed; in-flight capture retained for retry");
+        return false;
+      }
+      Serial.printf("[HISTORY] Direct upload failed; capture %s moved to offline queue\n",
+                    firestoreTimestampString(capturedAt).c_str());
+      return true;
+    }
+    if (!queueHistoryLineIfMissing(line, capturedMs)) {
+      Serial.println("[HISTORY] Direct upload failed and offline queue write failed; retaining window in RAM");
+      return false;
+    }
+    Serial.printf("[HISTORY] Direct upload failed; capture %s queued offline\n",
+                  firestoreTimestampString(capturedAt).c_str());
+    return true;
+  }
+
+  if (!bufferContainsCapture(capturedMs)) {
+    String line;
+    if (!buildHistoryLineFromSnapshot(window, line)) {
+      Serial.println("[HISTORY] Could not build completed window payload");
+      return false;
+    }
+    if (!bufferAppend(line, 0)) {
       Serial.println("[HISTORY] Durable SD/LittleFS queue write failed; window remains queued in RAM for retry");
       return false;
     }
@@ -3007,6 +3263,62 @@ void processOneCompletedHistoryWindow() {
   if (sendHistoryToFirestore(window)) {
     popCompletedHistoryWindow(window.capturedAtMs);
   }
+}
+
+void processOneInflightRecovery() {
+  if (!inflightRecoveryPending) return;
+  if (!littlefsMounted) {
+    inflightRecoveryPending = false;
+    return;
+  }
+  if (!canSendHistoryDirectNow() && millis() < 30000UL) return;
+
+  File dir = LittleFS.open(INFLIGHT_DIR);
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    inflightRecoveryPending = false;
+    return;
+  }
+
+  bool keepPending = false;
+  for (File file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const String path = file.path();
+    file.close();
+    if (path.endsWith(".tmp")) {
+      LittleFS.remove(path);
+      continue;
+    }
+    if (!path.endsWith(".row")) continue;
+
+    long long capturedMs = 0;
+    String line;
+    if (!inflightCapturedMsFromPath(path, capturedMs) ||
+        !loadInflightLine(path, line)) {
+      const String badPath = path + ".bad";
+      if (LittleFS.exists(badPath)) LittleFS.remove(badPath);
+      if (!LittleFS.rename(path, badPath)) keepPending = true;
+      continue;
+    }
+
+    const String capturedAt = firestoreTimestampString(
+        static_cast<time_t>(capturedMs / 1000LL));
+    if (canSendHistoryDirectNow() && uploadBufferedEntry(line)) {
+      deleteInflightHistory(capturedMs);
+      Serial.printf("[HISTORY] Recovered in-flight capture %s\n", capturedAt.c_str());
+      keepPending = true;
+      break;
+    }
+    if (moveInflightToOfflineQueue(line, capturedMs)) {
+      Serial.printf("[HISTORY] Moved in-flight capture %s to offline queue\n",
+                    capturedAt.c_str());
+      keepPending = true;
+      break;
+    }
+    keepPending = true;
+    break;
+  }
+  dir.close();
+  inflightRecoveryPending = keepPending;
 }
 
 // ============================================================
@@ -3134,7 +3446,9 @@ void readDissolvedOxygenSensor() {
     if (sensorOutputEnabled) Serial.printf("[DO] Invalid/disconnected voltage: %.3fV\n", dissolvedOxygenVoltage);
     return;
   }
-  dissolvedOxygen = voltage * doVoltageScale + doVoltageOffset;
+  dissolvedOxygen = voltage * doVoltageScale + doVoltageOffset +
+      (doReadingOffsetEnabled ? doReadingOffset : 0.0f);
+  dissolvedOxygen = constrain(dissolvedOxygen, 0.0f, 20.0f);
   if (!isfinite(dissolvedOxygen) || dissolvedOxygen < 0.0f || dissolvedOxygen > 20.0f) {
     dissolvedOxygen = -1.0f;
     doSensorOK = false;
@@ -3484,11 +3798,17 @@ void printCalibrationHelp() {
   Serial.println("phoffset                 Show correction status/magnitude");
   Serial.println("phoffset on|off          Activate/deactivate stored correction (default +1.50)");
   Serial.println("phoffset <value>         Set and activate correction (-3.00..3.00)");
+  Serial.println("dooffset                 Show DO correction status/value");
+  Serial.println("dooffset on|off          Activate/deactivate stored DO correction");
+  Serial.println("dooffset <value>         Set correction in mg/L (-15.00..15.00)");
   Serial.println("doread                   Show current DO voltage/value");
   Serial.println("doclear                  Calibrate DO in air-saturated water");
-  Serial.println("turbclear [VOLTS]        Save stable clear-water voltage");
-  Serial.println("turbdirty [VOLTS]        Save stable dirty-water voltage");
-  Serial.println("turbair                  Deprecated; two-point mode does not use air calibration");
+  Serial.println("TURBCAL MODE 2|3         Start fresh 2-point (0/500) or 3-point (0/500/1000) calibration");
+  Serial.println("TURBCAL 0|500|1000 [V]   Capture stable voltage for that certified NTU point");
+  Serial.println("TURBCAL SHOW             Show active and in-progress turbidity calibration");
+  Serial.println("turbclear [VOLTS]        Save stable voltage for 0 NTU endpoint");
+  Serial.println("turbdirty [VOLTS]        Save stable voltage for 500 NTU endpoint");
+  Serial.println("turbair                  Deprecated; calibration uses liquid NTU standards only");
   Serial.println("feedempty                Save voltage with an empty hopper");
   Serial.println("feedfull                 Save voltage with a full hopper");
   Serial.println("hopperempty              Teach ultrasonic empty-hopper echo");
@@ -3562,16 +3882,38 @@ bool isPHCalibrationCommand(const String& cmd) {
 }
 
 bool isSensorCalibrationCommand(const String& cmd) {
-  return isPHCalibrationCommand(cmd) || cmd == "doread" || cmd == "doclear" ||
-      cmd == "turbclear" || cmd.startsWith("turbclear ") ||
-      cmd == "turbdirty" || cmd.startsWith("turbdirty ");
+  String lower = cmd;
+  lower.toLowerCase();
+  return isPHCalibrationCommand(cmd) || lower == "doread" || lower == "doclear" ||
+      lower == "turbclear" || lower.startsWith("turbclear ") ||
+      lower == "turbdirty" || lower.startsWith("turbdirty ") ||
+      lower == "turbcal" || lower.startsWith("turbcal ");
+}
+
+bool isTurbidityCalibrationShow(const String& cmd) {
+  String normalized = cmd;
+  normalized.trim();
+  normalized.toLowerCase();
+  return normalized == "turbcal show";
+}
+
+bool isTurbidityCalibrationCommand(const String& cmd) {
+  String normalized = cmd;
+  normalized.trim();
+  normalized.toLowerCase();
+  return normalized == "turbcal" || normalized.startsWith("turbcal ") ||
+      normalized == "turbclear" || normalized.startsWith("turbclear ") ||
+      normalized == "turbdirty" || normalized.startsWith("turbdirty ");
 }
 
 bool isAllowedDuringCalibration(const String& cmd) {
+  String lower = cmd;
+  lower.toLowerCase();
   return cmd == "HELP" || cmd == "help" || cmd == "?" ||
       cmd == "CAL_HELP" || cmd == "cal help" || cmd == "CALSTATUS" ||
       cmd == "CALSHOW" || cmd == "CALMODE OFF" || cmd == "CALSTOP" ||
-      cmd.startsWith("CALSTREAM ") || isSensorCalibrationCommand(cmd);
+      cmd.startsWith("CALSTREAM ") || isSensorCalibrationCommand(cmd) ||
+      lower == "dooffset" || lower.startsWith("dooffset ");
 }
 
 void printSavedSensorCalibrations() {
@@ -3597,10 +3939,16 @@ void printSavedSensorCalibrations() {
                 v4, ref4, v686, v9, ref9, pairName, phFitMode, phFitPointCount,
                 phVoltageSlope, phVoltageIntercept,
                 phReadingOffsetEnabled ? "ON " : "OFF ", phReadingOffset);
-  Serial.printf("[CAL NVM] DO scale=%.5f offset=%.5f | Turb clear=%.4f dirty=%.4f V mapping=%s (2-point)\n",
-                doVoltageScale, doVoltageOffset, turbidityVClear,
-                turbidityVDirty,
-                turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE");
+  Serial.printf("[CAL NVM] DO scale=%.5f fitOffset=%.5f outputCorrection=%s%+.2f mg/L | Turb mode=%u-point 0NTU=%.4fV 500NTU=%.4fV 1000NTU=%.4fV mapping=%s (max %.0f NTU)\n",
+                doVoltageScale, doVoltageOffset,
+                doReadingOffsetEnabled ? "ON " : "OFF ", doReadingOffset,
+                turbidityCalMode,
+                turbidityVClear, turbidityVDirty, turbidityV1000,
+                turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE",
+                turbidityCalMode == 3 ? NTU_MAX : 500.0f);
+  Serial.printf("[CAL NVM] Turbidity pending: mode=%u mask=0x%02X V0=%.4f V500=%.4f V1000=%.4f\n",
+                turbidityPendingMode, turbidityPendingMask, turbidityPendingV0,
+                turbidityPendingV500, turbidityPendingV1000);
 }
 
 bool applySavedPHFit(int requestedFitMode = -1) {
@@ -3960,6 +4308,163 @@ bool calibrationVoltageMatchesStable(float measuredVoltage) {
   return true;
 }
 
+bool beginTurbidityCalibration(uint8_t mode) {
+  if (mode != 2 && mode != 3) return false;
+  const uint8_t oldMode = turbidityPendingMode;
+  const uint8_t oldMask = turbidityPendingMask;
+  const float oldV0 = turbidityPendingV0;
+  const float oldV500 = turbidityPendingV500;
+  const float oldV1000 = turbidityPendingV1000;
+  turbidityPendingMode = mode;
+  turbidityPendingMask = 0;
+  turbidityPendingV0 = turbidityPendingV500 = turbidityPendingV1000 = -1.0f;
+  if (!saveTurbidityPendingState()) {
+    turbidityPendingMode = oldMode;
+    turbidityPendingMask = oldMask;
+    turbidityPendingV0 = oldV0;
+    turbidityPendingV500 = oldV500;
+    turbidityPendingV1000 = oldV1000;
+    Serial.println("[CAL NVM] Could not start turbidity calibration; previous pending state retained.");
+    return false;
+  }
+  Serial.printf("[CAL] Started fresh %u-point turbidity calibration. Active calibration remains unchanged until all points validate.\n", mode);
+  Serial.println(mode == 2 ? "[CAL] Capture certified 0 NTU and 500 NTU standards." :
+                             "[CAL] Capture certified 0, 500, and 1000 NTU standards.");
+  return true;
+}
+
+void handleTurbidityCalibrationCommand(const String& input) {
+  String command = input;
+  command.trim();
+  String lower = command;
+  lower.toLowerCase();
+
+  if (lower == "turbcal" || lower == "turbcal show") {
+    Serial.printf("[TURBCAL] Active=%u-point 0NTU=%.4fV 500NTU=%.4fV 1000NTU=%.4fV status=%s range=0-%.0f NTU\n",
+                  turbidityCalMode, turbidityVClear, turbidityVDirty,
+                  turbidityV1000, turbidityCalibrationValid() ? "VALID" : "INVALID/INCOMPLETE",
+                  turbidityCalMode == 3 ? NTU_MAX : 500.0f);
+    Serial.printf("[TURBCAL] Pending mode=%u captured=0x%02X V0=%.4fV V500=%.4fV V1000=%.4fV\n",
+                  turbidityPendingMode, turbidityPendingMask, turbidityPendingV0,
+                  turbidityPendingV500, turbidityPendingV1000);
+    return;
+  }
+
+  if (lower.startsWith("turbcal mode ")) {
+    String modeText = lower.substring(13);
+    modeText.trim();
+    const int mode = modeText.toInt();
+    if ((modeText != "2" && modeText != "3") || !beginTurbidityCalibration(mode))
+      Serial.println("Usage: TURBCAL MODE 2 | TURBCAL MODE 3");
+    return;
+  }
+
+  int point = -1;
+  String valueText;
+  if (lower == "turbclear" || lower.startsWith("turbclear ")) {
+    point = 0;
+    if (command.length() > 9) valueText = command.substring(10);
+  } else if (lower == "turbdirty" || lower.startsWith("turbdirty ")) {
+    point = 500;
+    if (command.length() > 9) valueText = command.substring(10);
+  } else if (lower.startsWith("turbcal ")) {
+    String args = command.substring(8);
+    args.trim();
+    const int separator = args.indexOf(' ');
+    String pointText = separator < 0 ? args : args.substring(0, separator);
+    pointText.trim();
+    if (separator >= 0) valueText = args.substring(separator + 1);
+    if (pointText == "0") point = 0;
+    else if (pointText == "500") point = 500;
+    else if (pointText == "1000") point = 1000;
+  }
+  if (point < 0) {
+    Serial.println("Usage: TURBCAL MODE 2|3 | TURBCAL 0|500|1000 [VOLTS] | TURBCAL SHOW");
+    return;
+  }
+
+  if (turbidityPendingMode == 0) {
+    beginTurbidityCalibration(turbidityCalMode == 3 ? 3 : 2);
+    if (turbidityPendingMode == 0) return;
+  }
+  if (point == 1000 && turbidityPendingMode != 3) {
+    Serial.println("[CAL] 1000 NTU is available only after TURBCAL MODE 3.");
+    return;
+  }
+  if (!calibrationCaptureReady(CAL_SENSOR_TURB)) return;
+
+  float voltage = calibrationStableVoltage;
+  valueText.trim();
+  if (valueText.length()) {
+    voltage = valueText.toFloat();
+    if (!calibrationVoltageMatchesStable(voltage)) return;
+  }
+  if (!isfinite(voltage) || voltage <= 0.0f || voltage > 3.25f) {
+    Serial.printf("[CAL] Capture rejected: voltage must be 0 < V <= 3.25, got %.4fV.\n", voltage);
+    return;
+  }
+
+  const uint8_t oldMask = turbidityPendingMask;
+  const float oldV0 = turbidityPendingV0;
+  const float oldV500 = turbidityPendingV500;
+  const float oldV1000 = turbidityPendingV1000;
+  uint8_t bit = 0;
+  if (point == 0) { bit = 0x01; turbidityPendingV0 = voltage; }
+  else if (point == 500) { bit = 0x02; turbidityPendingV500 = voltage; }
+  else { bit = 0x04; turbidityPendingV1000 = voltage; }
+  turbidityPendingMask |= bit;
+  if (!saveTurbidityPendingState()) {
+    turbidityPendingMask = oldMask;
+    turbidityPendingV0 = oldV0;
+    turbidityPendingV500 = oldV500;
+    turbidityPendingV1000 = oldV1000;
+    Serial.println("[CAL NVM] Point not saved; pending calibration was retained as before.");
+    return;
+  }
+  Serial.printf("[CAL NVM] Captured %d NTU = %.4fV (%u/%u points).\n", point,
+                voltage, (turbidityPendingMask & 0x01 ? 1 : 0) +
+                (turbidityPendingMask & 0x02 ? 1 : 0) +
+                (turbidityPendingMask & 0x04 ? 1 : 0), turbidityPendingMode);
+
+  const uint8_t neededMask = turbidityPendingMode == 3 ? 0x07 : 0x03;
+  if ((turbidityPendingMask & neededMask) != neededMask) {
+    Serial.println("[TURBCAL] Pending point saved. Capture remaining points; active mapping is unchanged.");
+    return;
+  }
+  const bool ordered = turbidityPendingV0 - turbidityPendingV500 >= TURB_CAL_MIN_POINT_SPAN_V &&
+      (turbidityPendingMode == 2 ||
+       turbidityPendingV500 - turbidityPendingV1000 >= TURB_CAL_MIN_POINT_SPAN_V);
+  if (!ordered) {
+    Serial.println("[TURBCAL] Set is not valid: expected V(0 NTU) > V(500 NTU) > V(1000 NTU), with at least 20mV between adjacent points. Recapture the incorrect point(s).");
+    return;
+  }
+
+  const float oldClear = turbidityVClear;
+  const float oldDirty = turbidityVDirty;
+  const float old1000 = turbidityV1000;
+  const uint8_t oldMode = turbidityCalMode;
+  turbidityVClear = turbidityPendingV0;
+  turbidityVDirty = turbidityPendingV500;
+  turbidityV1000 = turbidityPendingMode == 3 ? turbidityPendingV1000 : -1.0f;
+  turbidityCalMode = turbidityPendingMode;
+  if (!turbidityCalibrationValid() || !saveSensorCalibrations()) {
+    turbidityVClear = oldClear;
+    turbidityVDirty = oldDirty;
+    turbidityV1000 = old1000;
+    turbidityCalMode = oldMode;
+    Serial.println("[CAL NVM] Complete mapping was not activated/saved; previous active mapping remains. Pending points retained.");
+    return;
+  }
+  turbidityPendingMode = 0;
+  turbidityPendingMask = 0;
+  turbidityPendingV0 = turbidityPendingV500 = turbidityPendingV1000 = -1.0f;
+  if (!saveTurbidityPendingState())
+    Serial.println("[CAL NVM] Active mapping saved; warning: could not clear pending NVS markers.");
+  Serial.printf("[TURBCAL] ACTIVE %u-point map saved: 0NTU=%.4fV, 500NTU=%.4fV, 1000NTU=%.4fV. Output range 0-%.0f NTU.\n",
+                turbidityCalMode, turbidityVClear, turbidityVDirty,
+                turbidityV1000, turbidityCalMode == 3 ? NTU_MAX : 500.0f);
+}
+
 float analogVoltageForCalibration(uint8_t sensor) {
   // Match the live pH path's eFuse-calibrated conversion rather than the
   // nominal 3.3/4095 scale used for the other ADC channels.
@@ -4280,7 +4785,6 @@ void setup() {
       applySavedPHFit();
     }
   }
-
   showLCDBootProgress("Starting sensors", 20);
   primeTemperatureBuffer();
   primeTurbidityBuffer();
@@ -4389,10 +4893,15 @@ void loop() {
         Serial.println("[CAL] Command blocked while calibrating; use CALMODE OFF to resume normal commands.");
         cmd = "";
       } else if (!calibrationMode && isSensorCalibrationCommand(cmd) &&
-                 !(rawStreamEnabled && isPHCalibrationCommand(cmd))) {
+                 !(rawStreamEnabled && isPHCalibrationCommand(cmd)) &&
+                 !isTurbidityCalibrationShow(cmd)) {
         Serial.println("[CAL] Enter CALMODE ON first so Firebase/Wi-Fi are paused during calibration.");
         cmd = "";
       }
+    }
+    if (isTurbidityCalibrationCommand(cmd)) {
+      handleTurbidityCalibrationCommand(cmd);
+      cmd = "";
     }
     if (cmd == "HELP" || cmd == "help" || cmd == "?") {
       printSerialHelp();
@@ -4855,6 +5364,53 @@ void loop() {
         }
       }
     }
+    if (cmd == "dooffset" || cmd.startsWith("dooffset ")) {
+      String offsetText = cmd == "dooffset" ? "" : cmd.substring(9);
+      offsetText.trim();
+      if (offsetText.length() == 0) {
+        Serial.printf("[DO] Output correction %s (%+.2f mg/L). Use dooffset on|off or dooffset <value>.\n",
+                      doReadingOffsetEnabled ? "ON" : "OFF", doReadingOffset);
+      } else if (offsetText == "on" || offsetText == "off") {
+        const bool enabled = offsetText == "on";
+        if (!prefs.begin("sensorcal", false)) {
+          Serial.println("[DO] Could not open NVS; correction activation was not changed.");
+        } else {
+          const bool saved = prefs.putBool("doReadOn", enabled);
+          prefs.end();
+          if (saved) {
+            doReadingOffsetEnabled = enabled;
+            Serial.printf("[DO] Output correction %s; stored value is %+.2f mg/L.\n",
+                          enabled ? "ON" : "OFF", doReadingOffset);
+          } else {
+            Serial.println("[DO] NVS write failed; previous activation state retained.");
+          }
+        }
+      } else {
+        char* end = nullptr;
+        const float requestedOffset = strtof(offsetText.c_str(), &end);
+        if (end == offsetText.c_str() || *end != '\0' ||
+            !isfinite(requestedOffset) || requestedOffset < -15.0f ||
+            requestedOffset > 15.0f) {
+          Serial.println("[DO] Invalid correction. Use a value from -15.00 to 15.00 mg/L.");
+        } else if (!prefs.begin("sensorcal", false)) {
+          Serial.println("[DO] Could not open NVS; correction was not changed.");
+        } else {
+          bool saved = prefs.putFloat("doReadOff", requestedOffset) == sizeof(float);
+          saved &= prefs.putBool("doReadOn", requestedOffset != 0.0f);
+          prefs.end();
+          if (saved) {
+            doReadingOffset = requestedOffset;
+            doReadingOffsetEnabled = requestedOffset != 0.0f;
+            Serial.printf("[DO] Saved correction %+.2f mg/L; activation %s.\n",
+                          doReadingOffset,
+                          doReadingOffsetEnabled ? "ON" : "OFF");
+          } else {
+            Serial.println("[DO] NVS write failed; previous correction retained.");
+          }
+        }
+      }
+      cmd = "";
+    }
     if (cmd == "doread") {
       if (!calibrationMode) {
         Serial.println("[CAL] Enter CALMODE ON first.");
@@ -4870,7 +5426,9 @@ void loop() {
           tempC = smoothedTemp;
         }
         const float oxygen = v > 0.05f
-            ? v * doVoltageScale + doVoltageOffset : -1.0f;
+            ? constrain(v * doVoltageScale + doVoltageOffset +
+                (doReadingOffsetEnabled ? doReadingOffset : 0.0f), 0.0f, 20.0f)
+            : -1.0f;
         Serial.printf("[CAL] DO voltage=%.4fV current=%.2fmg/L temp=%.1fC calibration-stable=%s\n",
                       v, oxygen, tempC, calibrationStable ? "YES" : "NO");
       }
@@ -5409,6 +5967,10 @@ void loop() {
   // active collection window on reconnect.
   if (!sensorTaskRunning && !calibrationMode) finalizeHistoryWindowIfDue();
   processOneCompletedHistoryWindow();
+  if (inflightRecoveryPending && millis() - lastInflightRecoveryMs >= 5000UL) {
+    lastInflightRecoveryMs = millis();
+    processOneInflightRecovery();
+  }
   now = millis();
 
   // ─── Local feeder-log flush (store-and-forward) ───
@@ -5487,6 +6049,46 @@ void initFeeder() {
   // by an explicit close-angle command, test, or permitted feed cycle.
 }
 
+bool feederCommandPredatesBoot(long long issuedAtMs, long long expiresAtMs) {
+  if (feederBootEpoch == 0) return false;
+  const long long bootMs = (long long)feederBootEpoch * 1000LL;
+  const long long requestedAtMs = expiresAtMs > 0 ? expiresAtMs - 60000LL : 0;
+  return issuedAtMs <= 0 || issuedAtMs <= bootMs ||
+      (expiresAtMs > 0 && (expiresAtMs <= bootMs || requestedAtMs <= bootMs));
+}
+
+bool recordPreBootFeedCommandOutcome(const String& tankId, const String& commandId,
+                                     float grams) {
+  time_t now;
+  time(&now);
+  const String loggedAt = firestoreTimestampString(now);
+  if (loggedAt.isEmpty()) return false;
+
+  FirebaseJson json;
+  json.set("fields/action/stringValue",
+           "Feed cancelled - request was pending before reboot");
+  json.set("fields/type/stringValue", "manual");
+  json.set("fields/status/stringValue", "failed");
+  json.set("fields/command_id/stringValue", commandId);
+  json.set("fields/trigger_source/stringValue", "manual_request");
+  json.set("fields/logged_at/timestampValue", loggedAt);
+  if (isfinite(grams) && grams >= 0.0f) {
+    json.set("fields/requested_grams/doubleValue", String(grams, 1));
+  }
+
+  const String collection = "tanks/" + tankId + "/feeder_logs";
+  const String logId = hardwareId + "_cmd_" + commandId;
+  const bool uploaded = Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+      collection.c_str(), logId.c_str(), json.raw(), "");
+  const bool duplicate = !uploaded && fbdo.httpCode() == 409;
+  if (!uploaded && !duplicate) {
+    Serial.printf("[FEEDER CMD] Could not audit pre-reboot command %s: %s\n",
+                  commandId.c_str(), fbdo.errorReason().c_str());
+    return false;
+  }
+  return true;
+}
+
 // ─── Process Commands from Firestore ───
 // Lists tanks/{tankId}/feeder_commands, safely acknowledges one command, then
 // starts its non-blocking feed cycle.
@@ -5494,6 +6096,7 @@ void initFeeder() {
 void processFeederCommands() {
   if (!gateCloseAngleConfigured) return;
   if (!hasCurrentTankAssignment()) return;
+  if (feederBootEpoch == 0) return;
   if (!ensureFirebaseReady()) return;
   // Leave queued commands untouched while a feed is already running. This
   // prevents a second Feed Now request from being deleted without execution.
@@ -5554,10 +6157,29 @@ void processFeederCommands() {
     if (e.action != "") entryCount++;
   }
 
+  for (int i = 0; i < entryCount; i++) {
+    CmdEntry& e = entries[i];
+    if (e.action != "feed_now" ||
+        !feederCommandPredatesBoot(e.issuedAtMs, e.expiresAtMs)) continue;
+    Serial.printf("[FEEDER CMD] Discarding pre-reboot request %s\n",
+                  e.docId.c_str());
+    if (recordPreBootFeedCommandOutcome(currentTankId, e.docId, e.grams)) {
+      const String path = "tanks/" + currentTankId + "/feeder_commands/" + e.docId;
+      const bool deleted = Firebase.Firestore.deleteDocument(&fbdo, FIREBASE_PROJECT_ID, "",
+          path.c_str());
+      if (!deleted && fbdo.httpCode() != 404) {
+        Serial.printf("[FEEDER CMD] Could not delete pre-reboot request %s: %s\n",
+                      e.docId.c_str(), fbdo.errorReason().c_str());
+      }
+    }
+    e.action = "";
+  }
+
   // Process at most one valid feed command per poll. Remaining documents stay
   // queued and are picked up after the current non-blocking feed completes.
   for (int i = 0; i < entryCount; i++) {
     CmdEntry& e = entries[i];
+    if (e.action.isEmpty()) continue;
     Serial.printf("[FEEDER CMD] %s id=%s\n",
                   e.action.c_str(), e.docId.c_str());
 
