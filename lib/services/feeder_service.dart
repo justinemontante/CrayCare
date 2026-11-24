@@ -240,21 +240,52 @@ class FeederService extends ChangeNotifier {
   }
 
   void _recalculateTodayTotals() {
-    final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
+    final now = _manilaNow();
+    final todayDate = DateTime(now.year, now.month, now.day);
     var estimatedGrams = 0.0;
     var completedFeeds = 0;
-    for (final data in todayDocs.values) {
-      final status = (data['status'] as String? ?? '').toLowerCase();
+
+    // Primary: calculate from parsed _logs stream (single source of truth for UI)
+    for (final log in _logs) {
+      if (log.timestamp <= 0) continue;
+      final instant = DateTime.fromMillisecondsSinceEpoch(log.timestamp, isUtc: true);
+      final manila = instant.add(_manilaOffset);
+      final logDay = DateTime(manila.year, manila.month, manila.day);
+      if (logDay != todayDate) continue;
+
+      final status = (log.status ?? '').toLowerCase();
       if (status != 'completed' && status != 'forced') continue;
+
       completedFeeds++;
-      // Use the requested dose as the estimate; legacy logs may only have
-      // estimated_dispensed_grams, so keep that as a read-only fallback.
-      final rawGrams =
-          data['requested_grams'] ?? data['estimated_dispensed_grams'];
-      if (rawGrams is num && rawGrams.isFinite && rawGrams > 0) {
-        estimatedGrams += rawGrams.toDouble();
+      final g = log.estimatedDispensedGrams ?? log.requestedGrams ?? 0.0;
+      if (g > 0 && g.isFinite) {
+        estimatedGrams += g;
       }
     }
+
+    // Secondary fallback: if _logs has not populated yet, check raw today query docs
+    if (completedFeeds == 0) {
+      final todayDocs = {..._legacyTodayLogDocs, ..._todayTimestampLogDocs};
+      for (final data in todayDocs.values) {
+        final status = (data['status'] as String? ?? '').toLowerCase();
+        if (status != 'completed' && status != 'forced') continue;
+        completedFeeds++;
+
+        final rawGrams = data['estimated_dispensed_grams'] ??
+            data['requested_grams'] ??
+            data['grams'];
+        double? parsedGrams;
+        if (rawGrams is num && rawGrams.isFinite) {
+          parsedGrams = rawGrams.toDouble();
+        } else if (rawGrams is String) {
+          parsedGrams = double.tryParse(rawGrams);
+        }
+        if (parsedGrams != null && parsedGrams > 0) {
+          estimatedGrams += parsedGrams;
+        }
+      }
+    }
+
     _estimatedConsumptionToday = estimatedGrams;
     _completedFeedingsToday = completedFeeds;
     notifyListeners();
@@ -581,15 +612,13 @@ class FeederService extends ChangeNotifier {
                         scheduleTime: data['schedule_time'] as String?,
                         status: data['status'] as String?,
                         commandId: data['command_id'] as String?,
-                        requestedGrams: (data['requested_grams'] as num?)
-                            ?.toDouble(),
-                        // Keep the ESP32's actual servo-cycle estimate separate
-                        // from the requested dose. Callers that want "dispensed"
-                        // must prefer this; the requested dose is only a fallback
-                        // for legacy logs that predate this field.
+                        requestedGrams: (data['requested_grams'] as num?)?.toDouble() ??
+                            (data['grams'] as num?)?.toDouble() ??
+                            double.tryParse(data['requested_grams']?.toString() ?? '') ??
+                            double.tryParse(data['grams']?.toString() ?? ''),
                         estimatedDispensedGrams:
-                            (data['estimated_dispensed_grams'] as num?)
-                                ?.toDouble(),
+                            (data['estimated_dispensed_grams'] as num?)?.toDouble() ??
+                            double.tryParse(data['estimated_dispensed_grams']?.toString() ?? ''),
                         occurrenceTimestamp: data['occurrence_at'] == null
                             ? null
                             : _parseLoggedAtMillis(data['occurrence_at']),
@@ -602,6 +631,7 @@ class FeederService extends ChangeNotifier {
                   }
                 }
                 FeedState.feederLogs.value = List.from(_logs);
+                _recalculateTodayTotals();
               } catch (e) {
                 debugPrint('[FeederService] Logs parse error: $e');
               }
