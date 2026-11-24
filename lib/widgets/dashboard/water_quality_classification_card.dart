@@ -57,7 +57,7 @@ class WaterQualityClassificationCard extends StatelessWidget {
     return switch (classCode) {
       0 => 'Critical',
       1 => 'Poor',
-      2 => 'Good',
+      2 => 'Optimal',
       _ => 'Unclassified',
     };
   }
@@ -571,7 +571,7 @@ class _ClassificationHistorySheetState
 
   Color _statusColor(String label) {
     return switch (label.toLowerCase()) {
-      'good' => const Color(0xFF168A52),
+      'optimal' || 'good' => const Color(0xFF168A52),
       'poor' => const Color(0xFFB7791F),
       'critical' => const Color(0xFFB42318),
       _ => AppColors.mutedText,
@@ -813,6 +813,7 @@ class _ClassificationHistoryItemState
   bool _expanded = false;
 
   bool get _hasClassification =>
+      widget.label == 'Optimal' ||
       widget.label == 'Good' ||
       widget.label == 'Poor' ||
       widget.label == 'Critical';

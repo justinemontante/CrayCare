@@ -1376,8 +1376,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         ? 'OFFLINE'
         : service.getZone(chartKey);
     final label = switch (zone) {
-      'OPTIMAL' => 'NORMAL',
-      'WARNING' => 'WARNING',
+      'OPTIMAL' => 'OPTIMAL',
+      'WARNING' || 'POOR' => 'POOR',
       'CRITICAL' => 'CRITICAL',
       'EMPTY' => 'EMPTY',
       'OFFLINE' => 'OFFLINE',
@@ -1385,7 +1385,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     };
     final color = switch (zone) {
       'OPTIMAL' => AppColors.success,
-      'WARNING' => AppColors.warning,
+      'WARNING' || 'POOR' => AppColors.warning,
       'CRITICAL' || 'EMPTY' => AppColors.critical,
       _ => AppColors.darkWith(0.35),
     };
@@ -1455,14 +1455,38 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final range = SettingsService.instance.currentRanges[key];
     if (_usesLowCriticalThreshold(key)) {
       return {
-        'low': range?['low'] ?? (key == 'feedlevel' ? 20.0 : 15.0),
-        'critical': range?['critical'] ?? 10.0,
+        'low': range?['low'] ?? (key == 'feedlevel' ? 20.0 : 5.0),
+        'critical': range?['critical'] ?? (key == 'feedlevel' ? 10.0 : 3.0),
+      };
+    }
+    if (key == 'temp') {
+      return {
+        'min': range?['min'] ?? 26.0,
+        'max': range?['max'] ?? 29.0,
+        'criticalLow': 15.0,
+        'criticalHigh': 34.0,
+      };
+    }
+    if (key == 'ph') {
+      return {
+        'min': range?['min'] ?? 6.5,
+        'max': range?['max'] ?? 8.5,
+        'criticalLow': 5.5,
+        'criticalHigh': 9.5,
       };
     }
     if (key == 'do') {
       return {
         'min': range?['min'] ?? 5.0,
         'max': 999.0,
+        'criticalLow': 2.0,
+      };
+    }
+    if (key == 'turb') {
+      return {
+        'min': 0.0,
+        'max': range?['max'] ?? 25.0,
+        'criticalHigh': 50.0,
       };
     }
     if (range != null) return range;
@@ -1484,11 +1508,13 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     required Map<String, double> thresholds,
   }) {
     final items = <_CriticalItem>[];
+    final length = max(minData.length, maxData.length);
+
     if (_usesLowCriticalThreshold(chartKey)) {
       final lowThreshold =
-          thresholds['low'] ?? (chartKey == 'feedlevel' ? 20.0 : 15.0);
-      final criticalThreshold = thresholds['critical'] ?? 10.0;
-      final length = max(minData.length, maxData.length);
+          thresholds['low'] ?? (chartKey == 'feedlevel' ? 20.0 : 5.0);
+      final criticalThreshold =
+          thresholds['critical'] ?? (chartKey == 'feedlevel' ? 10.0 : 3.0);
       for (int i = 0; i < length; i++) {
         final value = i < minData.length && !minData[i].isNaN
             ? minData[i]
@@ -1505,21 +1531,34 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       }
       return items;
     }
-    final minThreshold = thresholds['min'] ?? double.negativeInfinity;
-    final maxThreshold = thresholds['max'] ?? double.infinity;
-    final length = max(minData.length, maxData.length);
+
+    final optMin = thresholds['min'] ?? double.negativeInfinity;
+    final optMax = thresholds['max'] ?? double.infinity;
+    final critLow = thresholds['criticalLow'] ?? double.negativeInfinity;
+    final critHigh = thresholds['criticalHigh'] ?? double.infinity;
+
     for (int i = 0; i < length; i++) {
       final label = i < labels.length ? labels[i] : '';
+
       if (i < minData.length) {
-        final low = minData[i];
-        if (!low.isNaN && low < minThreshold) {
-          items.add(_CriticalItem(value: low, label: label, isAboveMax: false));
+        final val = minData[i];
+        if (!val.isNaN) {
+          if (val < critLow) {
+            items.add(_CriticalItem(value: val, label: label, isAboveMax: true));
+          } else if (val < optMin) {
+            items.add(_CriticalItem(value: val, label: label, isAboveMax: false));
+          }
         }
       }
+
       if (i < maxData.length) {
-        final high = maxData[i];
-        if (!high.isNaN && high > maxThreshold) {
-          items.add(_CriticalItem(value: high, label: label, isAboveMax: true));
+        final val = maxData[i];
+        if (!val.isNaN) {
+          if (val >= critHigh) {
+            items.add(_CriticalItem(value: val, label: label, isAboveMax: true));
+          } else if (val > optMax) {
+            items.add(_CriticalItem(value: val, label: label, isAboveMax: false));
+          }
         }
       }
     }
@@ -1634,8 +1673,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                     criticalCount > 0
                         ? _usesLowCriticalThreshold(chartKey)
                               ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}'
-                              : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}'
-                        : 'No critical points',
+                              : '$criticalCount poor/critical reading${criticalCount > 1 ? 's' : ''}'
+                        : 'No critical/poor readings',
                     maxLines: 1,
                     style: TextStyle(
                       fontSize: 10,
@@ -1999,8 +2038,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                                         chartKey,
                                                       )
                                                       ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}  ›'
-                                                      : '$criticalCount critical point${criticalCount > 1 ? 's' : ''}  ›'
-                                                : 'No critical points',
+                                                      : '$criticalCount poor/critical reading${criticalCount > 1 ? 's' : ''}  ›'
+                                                : 'No critical/poor readings',
                                             style: TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.w600,
@@ -2145,7 +2184,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               Text(
                 _usesLowCriticalThreshold(chartKey)
                     ? 'Low/Critical Readings (${items.length})'
-                    : 'Critical Points (${items.length})',
+                    : 'Poor/Critical Readings (${items.length})',
                 style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
@@ -2182,6 +2221,19 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                 fontSize: 9,
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.dark,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              c.isAboveMax
+                                  ? (_usesLowCriticalThreshold(chartKey) ? '(Critical)' : '(Critical)')
+                                  : (_usesLowCriticalThreshold(chartKey) ? '(Low)' : '(Poor)'),
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w700,
+                                color: c.isAboveMax
+                                    ? AppColors.critical
+                                    : AppColors.warning,
                               ),
                             ),
                             const Spacer(),

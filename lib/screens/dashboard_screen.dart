@@ -693,13 +693,14 @@ class DashboardScreenState extends State<DashboardScreen>
     final zone = ss.getZone(key);
     if (key == 'feedlevel') {
       if (zone == 'OPTIMAL') return 'NORMAL';
-      if (zone == 'WARNING') return 'LOW';
+      if (zone == 'WARNING' || zone == 'POOR') return 'LOW';
     }
     if (key == 'waterlevel') {
       if (zone == 'OPTIMAL') return 'NORMAL';
-      if (zone == 'WARNING') return 'LOW';
+      if (zone == 'WARNING' || zone == 'POOR') return 'LOW';
       if (zone == 'EMPTY') return 'EMPTY';
     }
+    if (zone == 'WARNING') return 'POOR';
     return zone;
   }
 
@@ -708,7 +709,7 @@ class DashboardScreenState extends State<DashboardScreen>
     if (!ss.hasSensorData(key)) return AppColors.darkWith(0.3);
     final zone = ss.getZone(key);
     if (zone == 'OPTIMAL') return AppColors.success;
-    if (zone == 'WARNING') return AppColors.warning;
+    if (zone == 'WARNING' || zone == 'POOR') return AppColors.warning;
     if (zone == 'CRITICAL' || zone == 'EMPTY') return AppColors.critical;
     return AppColors.darkWith(0.4);
   }
@@ -1867,13 +1868,6 @@ class DashboardScreenState extends State<DashboardScreen>
     final waterCritical = (range['critical'] ?? 3.0).toDouble();
     final waterLow = (range['low'] ?? 5.0).toDouble();
 
-    final isMaxBound = rMax < 999.0;
-    final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
-    final warningThreshold = rangeSpan * 0.10;
-
-    final checkLower = rMin > 0.0;
-    final checkUpper = isMaxBound;
-
     String optimalRangeText = '';
     String warningRangeText = '';
     String criticalRangeText = '';
@@ -1884,37 +1878,34 @@ class DashboardScreenState extends State<DashboardScreen>
           '> ${waterCritical.toStringAsFixed(0)}$rUnit to ${waterLow.toStringAsFixed(0)}$rUnit';
       criticalRangeText =
           '> 0$rUnit to ${waterCritical.toStringAsFixed(0)}$rUnit';
+    } else if (sensorKey == 'temp') {
+      optimalRangeText = '26.0$rUnit \u2013 29.0$rUnit';
+      warningRangeText =
+          '15.0$rUnit \u2013 25.9$rUnit or 29.1$rUnit \u2013 33.9$rUnit';
+      criticalRangeText = '< 15.0$rUnit or \u2265 34.0$rUnit';
+    } else if (sensorKey == 'ph') {
+      optimalRangeText = '6.5 \u2013 8.5';
+      warningRangeText = '5.5 \u2013 6.4 or 8.6 \u2013 9.5';
+      criticalRangeText = '< 5.5 or > 9.5';
     } else if (sensorKey == 'do') {
-      final critical = (range['critical'] ?? 2.0).toDouble();
-      optimalRangeText = '≥ ${rMin.toStringAsFixed(1)}$rUnit';
+      optimalRangeText = '\u2265 5.0$rUnit';
+      warningRangeText = '2.0$rUnit \u2013 4.9$rUnit';
+      criticalRangeText = '< 2.0$rUnit';
+    } else if (sensorKey == 'turb') {
+      optimalRangeText = '0.0$rUnit \u2013 25.0$rUnit';
+      warningRangeText = '25.1$rUnit \u2013 50.0$rUnit';
+      criticalRangeText = '> 50.0$rUnit';
+    } else if (sensorKey == 'feedlevel') {
+      final critical = (range['critical'] ?? 10.0).toDouble();
+      optimalRangeText = '> ${rMin.toStringAsFixed(0)}%';
       warningRangeText =
-          '${critical.toStringAsFixed(1)}$rUnit \u2013 ${(rMin - 0.1).toStringAsFixed(1)}$rUnit';
-      criticalRangeText = '< ${critical.toStringAsFixed(1)}$rUnit';
-    } else if (checkLower && checkUpper) {
-      final lowWarnEnd = rMin + warningThreshold;
-      final highWarnStart = rMax - warningThreshold;
-      optimalRangeText =
-          '${lowWarnEnd.toStringAsFixed(1)}$rUnit \u2013 ${highWarnStart.toStringAsFixed(1)}$rUnit';
-      warningRangeText =
-          '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit or ${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
-      criticalRangeText =
-          '< ${rMin.toStringAsFixed(1)}$rUnit or > ${rMax.toStringAsFixed(1)}$rUnit';
-    } else if (checkLower) {
-      final lowWarnEnd = rMin + warningThreshold;
-      optimalRangeText = '> ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
-      warningRangeText =
-          '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${lowWarnEnd.toStringAsFixed(1)}$rUnit';
-      criticalRangeText = '< ${rMin.toStringAsFixed(1)}$rUnit';
-    } else if (checkUpper) {
-      final highWarnStart = rMax - warningThreshold;
-      optimalRangeText = '< ${highWarnStart.toStringAsFixed(1)}$rUnit';
-      warningRangeText =
-          '${highWarnStart.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
-      criticalRangeText = '> ${rMax.toStringAsFixed(1)}$rUnit';
+          '> ${critical.toStringAsFixed(0)}% to ${rMin.toStringAsFixed(0)}%';
+      criticalRangeText = '0% to ${critical.toStringAsFixed(0)}%';
     } else {
-      optimalRangeText = 'Optimal range';
-      warningRangeText = 'N/A';
-      criticalRangeText = 'N/A';
+      optimalRangeText =
+          '${rMin.toStringAsFixed(1)}$rUnit \u2013 ${rMax.toStringAsFixed(1)}$rUnit';
+      warningRangeText = 'Sub-optimal range';
+      criticalRangeText = 'Critical threshold exceeded';
     }
 
     final List<_LegendItem> legends;
@@ -1982,7 +1973,7 @@ class DashboardScreenState extends State<DashboardScreen>
           AppColors.success,
         ),
         _LegendItem(
-          'Warning',
+          'Poor',
           warningRangeText,
           'Mild hypoxia. Aeration is recommended to prevent stress.',
           AppColors.warning,
@@ -2003,7 +1994,7 @@ class DashboardScreenState extends State<DashboardScreen>
           AppColors.success,
         ),
         _LegendItem(
-          'Warning',
+          'Poor',
           warningRangeText,
           'Approaching threshold. Action recommended.',
           AppColors.warning,

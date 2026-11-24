@@ -522,7 +522,7 @@ function insightFor(
   if (totalUnfavorable === 0) {
     if (prediction === 2) {
       sentences.push(
-        `The ML model classified the water quality as Good across all monitored parameters. ${capitalize(
+        `The ML model classified the water quality as Optimal across all monitored parameters. ${capitalize(
           joinNatural(optimalBenefits)
         )}. These conditions keep physiological stress low for steady redclaw crayfish growth.`
       );
@@ -543,7 +543,7 @@ function insightFor(
           ? `optimal readings on ${joinNatural(optimalShortNames)}`
           : "overall feature patterns";
       sentences.push(
-        `Parameter Threshold Warning: While the ML model classified overall water quality as Good based on ${basis}, ${joinNatural(
+        `Parameter Threshold Warning: While the ML model classified overall water quality as Optimal based on ${basis}, ${joinNatural(
           criticalLabels
         )}.`
       );
@@ -573,13 +573,13 @@ function insightFor(
   // INSTANCE D: No Critical parameters, 1 to 4 Poor parameters
   } else {
     if (prediction === 2) {
-      // ML = Good, offsetting 1 or 2 slightly Poor parameters
+      // ML = Optimal, offsetting 1 or 2 slightly Poor parameters
       if (optimalBenefits.length > 0) {
-        sentences.push(`The ML model classified the water quality as Good.`);
+        sentences.push(`The ML model classified the water quality as Optimal.`);
         sentences.push(`${capitalize(joinNatural(optimalBenefits))}.`);
         sentences.push(`However, ${joinNatural(mildGoodWarnings)}.`);
       } else {
-        sentences.push(`The ML model classified the water quality as Good, though ${joinNatural(mildGoodWarnings)}.`);
+        sentences.push(`The ML model classified the water quality as Optimal, though ${joinNatural(mildGoodWarnings)}.`);
       }
     } else {
       // ML = Poor or Critical driven by multiple Poor readings

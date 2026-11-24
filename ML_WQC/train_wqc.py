@@ -32,7 +32,7 @@ FUNCTION_MODEL_OUT = (
 
 SENSOR_FEATURES = ["temperature", "ph_level", "dissolved_oxygen", "turbidity"]
 MODEL_FEATURES = SENSOR_FEATURES + ["do_temp_ratio"]
-CLASS_NAMES = {0: "Critical", 1: "Poor", 2: "Good"}
+CLASS_NAMES = {0: "Critical", 1: "Poor", 2: "Optimal"}
 MODEL_VERSION = "wqc-rf-v5-3class"
 TIME_FORMAT = "%m/%d/%Y %H:%M"
 TIME_GAP = pd.Timedelta(hours=2)
@@ -226,7 +226,7 @@ def make_model_features(frame: pd.DataFrame) -> pd.DataFrame:
 
 def metric_block(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, Any]:
     detail = classification_report(
-        y_true, y_pred, labels=[0, 1, 2], target_names=["Critical", "Poor", "Good"],
+        y_true, y_pred, labels=[0, 1, 2], target_names=["Critical", "Poor", "Optimal"],
         output_dict=True, zero_division=0,
     )
     return {
@@ -241,7 +241,7 @@ def metric_block(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, Any]:
                 "f1": float(detail[name]["f1-score"]),
                 "support": int(detail[name]["support"]),
             }
-            for name in ("Critical", "Poor", "Good")
+            for name in ("Critical", "Poor", "Optimal")
         },
         "macro_f1": float(detail["macro avg"]["f1-score"]),
         "weighted_f1": float(detail["weighted avg"]["f1-score"]),
@@ -304,7 +304,7 @@ def train() -> dict[str, Any]:
         "classes": model.classes_.tolist(),
         "trained_at_utc": pd.Timestamp.now(tz="UTC").isoformat(),
         "sklearn_version": sklearn.__version__,
-        "training_provenance": "100% Machine Learning 3-class Random Forest (Critical, Poor, Good) trained on observed readings and standards-based boundary scenarios.",
+        "training_provenance": "100% Machine Learning 3-class Random Forest (Critical, Poor, Optimal) trained on observed readings and standards-based boundary scenarios.",
     }
     report = {
         "algorithm": "RandomForestClassifier",
@@ -319,7 +319,7 @@ def train() -> dict[str, Any]:
             "max_features": None,
             "random_state": 42,
         },
-        "label_method": "100% Machine Learning 3-class classification: Critical (0), Poor (1), and Good (2) are directly predicted by the Random Forest model.",
+        "label_method": "100% Machine Learning 3-class classification: Critical (0), Poor (1), and Optimal (2) are directly predicted by the Random Forest model.",
         "provenance": source_audit,
         "training_scenarios": {
             "standards_fit_only_rows": int(len(scenarios)),
@@ -385,7 +385,7 @@ def export_model_for_functions(model: RandomForestClassifier, features: list[str
 
 def format_classification_report(metrics: dict[str, Any]) -> str:
     """Format saved metrics like sklearn's console classification report for 3 classes."""
-    names = ("Critical", "Poor", "Good")
+    names = ("Critical", "Poor", "Optimal")
     per_class = metrics["per_class"]
     total = metrics["rows"]
     active_names = [name for name in names if per_class[name]["support"] > 0]
@@ -427,7 +427,7 @@ if __name__ == "__main__":
 
     print("=== CrayCare Random Forest Classifier Training (3-Class) ===")
     print(f"  Model version : {MODEL_VERSION}")
-    print("  RF scope      : 100% Machine Learning (Critical, Poor, Good)")
+    print("  RF scope      : 100% Machine Learning (Critical, Poor, Optimal)")
     print(f"  Master dataset: {DATASET_PATH.name} (Single Unified Dataset)")
     print(f"  Scenarios rows: {result['training_scenarios']['standards_fit_only_rows']} (fit only)")
     print(f"\n  Validation Accuracy : {validation['accuracy'] * 100:.2f}%")
@@ -437,9 +437,9 @@ if __name__ == "__main__":
     print(format_classification_report(validation))
     print("--- HOLDOUT / TEST SET ---")
     print(format_classification_report(holdout))
-    print("Confusion Matrix (Validation) [Critical / Poor / Good]:")
+    print("Confusion Matrix (Validation) [Critical / Poor / Optimal]:")
     print(np.asarray(validation["confusion_matrix_labels_0_1_2"]))
-    print("\nConfusion Matrix (Holdout) [Critical / Poor / Good]:")
+    print("\nConfusion Matrix (Holdout) [Critical / Poor / Optimal]:")
     print(np.asarray(holdout["confusion_matrix_labels_0_1_2"]))
 
     print(f"\n  Model saved -> {MODEL_OUT}")
@@ -449,7 +449,7 @@ if __name__ == "__main__":
     bundle = joblib.load(MODEL_OUT)
     tests = [
         ("Screenshot case (DO 4.63)", 26.6, 7.94, 4.63, 11.9, "Poor"),
-        ("All Good",                  26.6, 7.94, 5.50, 11.9, "Good"),
+        ("All Optimal",               26.6, 7.94, 5.50, 11.9, "Optimal"),
         ("DO Critical (1.80)",        26.6, 7.94, 1.80, 11.9, "Critical"),
         ("Low Temp Poor (23.95)",     23.95, 7.20, 6.20, 1.0, "Poor"),
         ("High Temp Poor (30.5)",     30.5, 7.50, 6.00, 5.0,  "Poor"),

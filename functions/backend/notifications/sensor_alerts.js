@@ -54,21 +54,51 @@ function stateForSensor(sensorName, value, range) {
     if (value <= low) return {state: "warning", dir: "low", threshold: low};
     return {state: "normal"};
   }
-  if (min === null || max === null || min >= max) return {state: "unknown"};
-  const margin = (max - min) * WARNING_MARGIN_FRACTION;
-  // Low turbidity means clearer water, so it is not a water-quality warning.
-  // Keep the upper-bound alert for readings that are high or nearing the limit.
-  if (sensorName === "turbidity") {
-    if (value > max) return {state: "critical", dir: "high", threshold: max};
-    if (value > max - margin) {
-      return {state: "warning", dir: "high", threshold: max};
-    }
+
+  // Water Quality parameters: 3-tier standards (Optimal, Poor / Sub-optimal, Critical)
+  if (sensorName === "temperature") {
+    const critLow = 15.0;
+    const critHigh = 34.0;
+    const optMin = min !== null ? min : 26.0;
+    const optMax = max !== null ? max : 29.0;
+    if (value < critLow) return {state: "critical", dir: "low", threshold: critLow};
+    if (value >= critHigh) return {state: "critical", dir: "high", threshold: critHigh};
+    if (value < optMin) return {state: "warning", dir: "low", threshold: optMin};
+    if (value > optMax) return {state: "warning", dir: "high", threshold: optMax};
     return {state: "normal"};
   }
-  if (value < min) return {state: "critical", dir: "low", threshold: min};
-  if (value > max) return {state: "critical", dir: "high", threshold: max};
-  if (value < min + margin) return {state: "warning", dir: "low", threshold: min};
-  if (value > max - margin) return {state: "warning", dir: "high", threshold: max};
+
+  if (sensorName === "ph_level") {
+    const critLow = 5.5;
+    const critHigh = 9.5;
+    const optMin = min !== null ? min : 6.5;
+    const optMax = max !== null ? max : 8.5;
+    if (value < critLow) return {state: "critical", dir: "low", threshold: critLow};
+    if (value > critHigh) return {state: "critical", dir: "high", threshold: critHigh};
+    if (value < optMin) return {state: "warning", dir: "low", threshold: optMin};
+    if (value > optMax) return {state: "warning", dir: "high", threshold: optMax};
+    return {state: "normal"};
+  }
+
+  if (sensorName === "dissolved_oxygen") {
+    const critLow = 2.0;
+    const optMin = min !== null ? min : 5.0;
+    if (value < critLow) return {state: "critical", dir: "low", threshold: critLow};
+    if (value < optMin) return {state: "warning", dir: "low", threshold: optMin};
+    return {state: "normal"};
+  }
+
+  if (sensorName === "turbidity") {
+    const critHigh = 50.0;
+    const optMax = max !== null ? max : 25.0;
+    if (value > critHigh) return {state: "critical", dir: "high", threshold: critHigh};
+    if (value > optMax) return {state: "warning", dir: "high", threshold: optMax};
+    return {state: "normal"};
+  }
+
+  if (min === null || max === null || min >= max) return {state: "unknown"};
+  if (value < min) return {state: "warning", dir: "low", threshold: min};
+  if (value > max) return {state: "warning", dir: "high", threshold: max};
   return {state: "normal"};
 }
 

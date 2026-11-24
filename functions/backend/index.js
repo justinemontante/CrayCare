@@ -210,13 +210,14 @@ function sensorMessage(change) {
     return `Water level is low at ${change.val.toFixed(1)} cm. Consider adding water.`;
   }
   if (change.state === "resolved") {
-    return `${label} is back to normal (${change.val.toFixed(1)}${suffix})`;
+    return `${label} is back to optimal (${change.val.toFixed(1)}${suffix})`;
   }
-  const limit = change.dir === "low" ? "minimum" : "maximum";
-  const comparison = change.state === "warning"
-    ? `is nearing your set ${limit}`
-    : `is ${change.dir === "low" ? "below" : "above"} your set ${limit}`;
-  return `${label} ${comparison} (current: ${change.val.toFixed(1)}${suffix}; ${limit}: ${change.threshold.toFixed(1)}${suffix}).`;
+  if (change.state === "critical") {
+    const direction = change.dir === "low" ? "critically low" : "critically high";
+    return `${label} is ${direction} at ${change.val.toFixed(1)}${suffix} (critical limit: ${change.threshold.toFixed(1)}${suffix}). Immediate attention required.`;
+  }
+  const direction = change.dir === "low" ? "poor / sub-optimal (low)" : "poor / sub-optimal (high)";
+  return `${label} is ${direction} at ${change.val.toFixed(1)}${suffix} (optimal target: ${change.threshold.toFixed(1)}${suffix}).`;
 }
 
 async function notifySensorChanges(ownerUid, stateChanges, eventId) {
@@ -226,7 +227,7 @@ async function notifySensorChanges(ownerUid, stateChanges, eventId) {
   const hasWarning = stateChanges.some((c) => c.state === "warning");
   const alertType = hasCritical ? "critical" : hasWarning ? "warning" : "operational";
   const title = hasCritical
-    ? "Sensor Alert"
+    ? "Critical Sensor Alert"
     : hasWarning
       ? "Sensor Warning"
       : "Sensor Normalized";

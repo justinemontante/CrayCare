@@ -9,7 +9,7 @@ const FEATURE_NAMES = [
   "dissolved_oxygen",
   "turbidity",
 ];
-const CLASS_NAMES = { "-1": "Sensor Error", 0: "Critical", 1: "Poor", 2: "Good" };
+const CLASS_NAMES = { "-1": "Sensor Error", 0: "Critical", 1: "Poor", 2: "Optimal" };
 
 function predictClass(values) {
   // values = [temperature, ph_level, dissolved_oxygen, turbidity]
@@ -54,19 +54,19 @@ function readingNote(feature, value, status) {
   }
   if (feature === "temperature") {
     if (status === 0) return `Temperature ${formatted}°C is in the Critical range.`;
-    if (status === 1) return `Temperature ${formatted}°C is outside the Good range of ${t.goodLow}–${t.goodHigh}°C.`;
+    if (status === 1) return `Temperature ${formatted}°C is outside the Optimal range of ${t.goodLow}–${t.goodHigh}°C.`;
   }
   if (feature === "ph_level") {
     if (status === 0) return `pH ${formatted} is in the Critical range.`;
-    if (status === 1) return `pH ${formatted} is outside the Good range of ${t.goodLow}–${t.goodHigh}.`;
+    if (status === 1) return `pH ${formatted} is outside the Optimal range of ${t.goodLow}–${t.goodHigh}.`;
   }
   if (feature === "dissolved_oxygen") {
     if (status === 0) return `DO ${formatted} mg/L is below the Critical limit of ${t.criticalLow.toFixed(1)} mg/L.`;
-    if (status === 1) return `DO ${formatted} mg/L is below the ${t.goodLow.toFixed(1)} mg/L Good target.`;
+    if (status === 1) return `DO ${formatted} mg/L is below the ${t.goodLow.toFixed(1)} mg/L Optimal target.`;
   }
   if (feature === "turbidity") {
     if (status === 0) return `Turbidity ${formatted} NTU is in the Critical range.`;
-    if (status === 1) return `Turbidity ${formatted} NTU is outside the Good range of ${t.goodLow}–${t.goodHigh} NTU.`;
+    if (status === 1) return `Turbidity ${formatted} NTU is outside the Optimal range of ${t.goodLow}–${t.goodHigh} NTU.`;
   }
   return null;
 }

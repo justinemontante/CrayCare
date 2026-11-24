@@ -241,37 +241,38 @@ class SensorService extends ChangeNotifier {
     final min = range['min'] ?? 0.0;
     final max = range['max'] ?? 999.0;
 
-    if (key == 'do') {
-      // Dissolved oxygen has no upper maximum limit. Higher DO is always optimal.
-      // Only low oxygen can warn or reach critical.
-      final critical = range['critical'] ?? 2.0;
-      if (value < critical) return 'CRITICAL';
-      if (value < min) return 'WARNING';
+    if (key == 'temp') {
+      const critLow = 15.0;
+      const critHigh = 34.0;
+      if (value < critLow || value >= critHigh) return 'CRITICAL';
+      if (value < min || value > max) return 'POOR';
       return 'OPTIMAL';
     }
 
-    if (key == 'turb' && max > min) {
-      // Lower turbidity means clearer water. Only the upper range can warn.
-      if (value > max) return 'CRITICAL';
-      final warningThreshold = (max - min) * 0.10;
-      if (max < 999.0 && value > max - warningThreshold) return 'WARNING';
+    if (key == 'ph') {
+      const critLow = 5.5;
+      const critHigh = 9.5;
+      if (value < critLow || value > critHigh) return 'CRITICAL';
+      if (value < min || value > max) return 'POOR';
+      return 'OPTIMAL';
+    }
+
+    if (key == 'do') {
+      const critLow = 2.0;
+      if (value < critLow) return 'CRITICAL';
+      if (value < min) return 'POOR';
+      return 'OPTIMAL';
+    }
+
+    if (key == 'turb') {
+      const critHigh = 50.0;
+      if (value > critHigh) return 'CRITICAL';
+      if (value > max) return 'POOR';
       return 'OPTIMAL';
     }
 
     if (value < min || value > max) {
       return 'CRITICAL';
-    }
-
-    final isMaxBound = max < 999.0;
-    final rangeSpan = isMaxBound ? (max - min) : min;
-    final warningThreshold = rangeSpan * 0.10;
-
-    final checkLower = min > 0.0;
-    final checkUpper = isMaxBound;
-
-    if ((checkLower && (value - min) < warningThreshold) ||
-        (checkUpper && (max - value) < warningThreshold)) {
-      return 'WARNING';
     }
 
     return 'OPTIMAL';

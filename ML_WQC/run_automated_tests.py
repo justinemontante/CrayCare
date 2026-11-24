@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model" / "wqc_random_forest.joblib"
 DATASET_PATH = BASE_DIR / "datasets" / "craycare_water_quality_dataset.csv"
 
-CLASS_NAMES = {0: "Critical", 1: "Poor", 2: "Good"}
+CLASS_NAMES = {0: "Critical", 1: "Poor", 2: "Optimal"}
 
 def print_header(title):
     print("\n" + "=" * 70)
@@ -40,7 +40,7 @@ def main():
     print_header("TEST SUITE 1: PHYSICAL SAFETY & EDGE-CASE BENCHMARKS (13 Tests)")
     
     test_cases = [
-        ("Normal Safe Conditions (All Optimal)",   27.0, 7.50, 6.50, 10.0, "Good"),
+        ("Normal Safe Conditions (All Optimal)",   27.0, 7.50, 6.50, 10.0, "Optimal"),
         ("Dissolved Oxygen Critical (< 2.0 mg/L)", 27.0, 7.50, 1.80, 10.0, "Critical"),
         ("High Temperature Critical (>= 34.0 C)",  34.5, 7.50, 6.00, 10.0, "Critical"),
         ("Low Temperature Critical (< 15.0 C)",   12.0, 7.50, 6.00, 10.0, "Critical"),
@@ -118,7 +118,7 @@ def main():
     
     print("\n  Confusion Matrix Breakdown:")
     print(f"    - Poor Class     : {cm[1, 1]} Correct out of {cm[1].sum()} ({cm[1, 1]/cm[1].sum()*100:.2f}% recall)")
-    print(f"    - Good Class     : {cm[2, 2]} Correct out of {cm[2].sum()} ({cm[2, 2]/cm[2].sum()*100:.2f}% recall)")
+    print(f"    - Optimal Class  : {cm[2, 2]} Correct out of {cm[2].sum()} ({cm[2, 2]/cm[2].sum()*100:.2f}% recall)")
     print(f"    - Critical Errors: {cm[0, 1] + cm[0, 2]} (Zero false triggers on critical)")
 
     print_header("ALL AUTOMATED TESTS COMPLETED SUCCESSFULLY!")

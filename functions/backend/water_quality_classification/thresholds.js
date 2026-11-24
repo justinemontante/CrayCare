@@ -119,7 +119,7 @@ function classCodeToZone(code) {
     case 1:
       return "poor";
     case 2:
-      return "good";
+      return "optimal";
     default:
       return "unknown";
   }
