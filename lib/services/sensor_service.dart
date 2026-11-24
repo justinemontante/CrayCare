@@ -335,16 +335,21 @@ class SensorService extends ChangeNotifier {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
+    // ── Parallel fetch: user profile + tank doc at the same time ──────────
+    // Dati: sequential (profile first, then tank) = 2 round-trips in series.
+    // Now: both fire at once so setup time is cut roughly in half.
     String? resolvedTankId;
     try {
-      final profileDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
+      final results = await Future.wait([
+        FirebaseFirestore.instance.collection('users').doc(uid).get(),
+        FirebaseFirestore.instance.collection('tanks').doc(uid).get(),
+      ]);
       if (generation != _listenerGeneration ||
           FirebaseAuth.instance.currentUser?.uid != uid) {
         return;
       }
+      final profileDoc = results[0];
+      final tankDoc = results[1];
       final profileData = profileDoc.data();
       if (profileData?['role']?.toString().trim().toLowerCase() == 'admin') {
         _resetForTankChange(null);
@@ -354,8 +359,21 @@ class SensorService extends ChangeNotifier {
         return;
       }
       resolvedTankId = uid;
+      // Validate tank doc immediately from the parallel fetch result.
+      final tankData = tankDoc.data();
+      final currentBatchId = tankData?['current_batch_id'];
+      final hasInitializedBatch =
+          tankData?['is_initialized'] == true &&
+          currentBatchId is String &&
+          currentBatchId.trim().isNotEmpty;
+      if (!tankDoc.exists || !hasInitializedBatch) {
+        _resetForTankChange(resolvedTankId);
+        _tankId = resolvedTankId;
+        clearForMissingTank();
+        return;
+      }
     } catch (e) {
-      debugPrint('[SensorService] Failed to resolve tank_id: $e');
+      debugPrint('[SensorService] Failed to resolve profile/tank: $e');
       resolvedTankId = uid;
     }
 
@@ -375,42 +393,22 @@ class SensorService extends ChangeNotifier {
       return;
     }
 
-    // Firestore keeps subcollections when their parent document is deleted.
-    // Do not subscribe to a leftover sensor_readings/latest document unless
-    // the owning tank document itself still exists.
-    try {
-      final tankDoc = await FirebaseFirestore.instance
-          .collection('tanks')
-          .doc(tankId)
-          .get();
-      if (generation != _listenerGeneration) return;
-      final tankData = tankDoc.data();
-      final currentBatchId = tankData?['current_batch_id'];
-      final hasInitializedBatch =
-          tankData?['is_initialized'] == true &&
-          currentBatchId is String &&
-          currentBatchId.trim().isNotEmpty;
-      if (!tankDoc.exists || !hasInitializedBatch) {
-        clearForMissingTank();
-        return;
-      }
-    } catch (e) {
-      debugPrint('[SensorService] Failed to verify tank document: $e');
-      // Preserve the existing sensor subscription behavior on transient read
-      // failures; Firestore rules still protect the data itself.
-    }
-
+    // ── Real-time snapshot listener ───────────────────────────────────────
+    // includeMetadataChanges: true  → app shows cached value INSTANTLY while
+    // the server confirms, then updates again when the server write lands.
+    // This eliminates the visible "blank / stale" gap on reconnect.
     _subscription = FirebaseFirestore.instance
         .collection('tanks')
         .doc(tankId)
         .collection('sensor_readings')
         .doc('latest')
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) {
             if (generation != _listenerGeneration) return;
             _lastError = null;
             if (!snapshot.exists || snapshot.data() == null) return;
+            // Accept both cached (immediate) and server-confirmed snapshots.
             _parseAndUpdate(snapshot.data()!);
           },
           onError: (error) {
