@@ -1622,16 +1622,10 @@ static bool loadHistoryCheckpointFiles(PersistedHistoryState& state,
 }
 
 bool writeHistoryState(PersistedHistoryState& state) {
-  state.magic = HISTORY_STATE_MAGIC;
-  state.version = HISTORY_STATE_VERSION;
-  state.checksum = historyStateChecksum(state);
-  if (!historyPrefs.begin("histwin", false)) return false;
-  const size_t written = historyPrefs.putBytes("state", &state, sizeof(state));
-  if (written == sizeof(state)) {
-    historyPrefs.putLong64("stamp", historyCheckpointNowMs());
-  }
-  historyPrefs.end();
-  return written == sizeof(state);
+  // Deprecated/Disabled: NVS must not store high-frequency 750-byte history checkpoint blobs.
+  // SD card and LittleFS handle durable history checkpoints.
+  (void)state;
+  return false;
 }
 
 bool saveHistoryWindowCheckpoint() {
@@ -1655,11 +1649,17 @@ bool saveHistoryWindowCheckpoint() {
     }
   }
   const bool fileSaved = writeHistoryCheckpointFiles(next);
-  // Use the filesystem as the active checkpoint when available; avoid
-  // rewriting the large NVS blob and exhausting the small NVS partition.
-  const bool nvsSaved = fileSaved || writeHistoryState(next);
-  if (!fileSaved && !nvsSaved) return false;
-  if (!fileSaved && nvsSaved) Serial.println("[HISTORY] Filesystems unavailable; checkpoint saved to NVS fallback");
+  if (!fileSaved) {
+    // Filesystems (SD card / LittleFS) unavailable. Do NOT fallback to writing
+    // large 750-byte blobs into NVS every minute, which corrupts NVS and exhausts flash.
+    // In-memory aggregates in RAM will continue untouched.
+    static unsigned long lastFsWarnMs = 0;
+    if (millis() - lastFsWarnMs >= 60000UL) {
+      lastFsWarnMs = millis();
+      Serial.println("[HISTORY] Filesystems unavailable for checkpoint; retaining aggregates in RAM without NVS wear.");
+    }
+    return false;
+  }
   persistedHistoryState = next;
   if (hasCurrentTankAssignment()) historyWindowRecovered = false;
   return true;
@@ -5997,11 +5997,7 @@ void loop() {
   }
 
   if (now - lastHistoryCheckpointMs >= 60000UL) {
-    if (!saveHistoryWindowCheckpoint()) {
-      Serial.println("[HISTORY] Could not checkpoint in-progress window to NVS");
-    } else {
-      lastHistoryCheckpointMs = now;
-    }
+    if (saveHistoryWindowCheckpoint()) lastHistoryCheckpointMs = now;
   }
 
   // Drop a TLS session wedged by repeated transport failures (BearSSL

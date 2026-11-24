@@ -1225,13 +1225,9 @@ uint32_t historyStateChecksum(const PersistedHistoryState& state) {
 }
 
 bool writeHistoryState(PersistedHistoryState& state) {
-  state.magic = HISTORY_STATE_MAGIC;
-  state.version = HISTORY_STATE_VERSION;
-  state.checksum = historyStateChecksum(state);
-  if (!historyPrefs.begin("histwin", false)) return false;
-  const size_t written = historyPrefs.putBytes("state", &state, sizeof(state));
-  historyPrefs.end();
-  return written == sizeof(state);
+  // Deprecated/Disabled: NVS must not store high-frequency 750-byte history checkpoint blobs.
+  (void)state;
+  return false;
 }
 
 bool saveHistoryWindowCheckpoint() {
@@ -1253,7 +1249,6 @@ bool saveHistoryWindowCheckpoint() {
       next.assignmentAtMs = currentAssignmentAtMs;
     }
   }
-  if (!writeHistoryState(next)) return false;
   persistedHistoryState = next;
   if (hasCurrentTankAssignment()) historyWindowRecovered = false;
   return true;
