@@ -648,11 +648,12 @@ static bool uploadBufferedEntry(const String& queuedLine) {
   return false;
 }
 
-// Upload up to two oldest rows, then compact the local queue once. This keeps
+// Upload up to three oldest rows, then compact the local queue once. This keeps
 // ordering and crash-safe retry behavior while avoiding a full queue rewrite
-// after every successful row.
+// after every successful row. Three rows per 250 ms batch drains a large
+// offline backlog quickly without starving the live 10-second send slot.
 bool flushBufferedBatch() {
-  constexpr size_t MAX_BATCH = 2;
+  constexpr size_t MAX_BATCH = 3;
   String lines[MAX_BATCH];
   bool fromSd = false;
   const size_t count = bufferReadAll(lines, MAX_BATCH, &fromSd);

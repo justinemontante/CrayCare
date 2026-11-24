@@ -870,11 +870,12 @@ static bool uploadBufferedEntry(const String& queuedLine) {
   return false;
 }
 
-// Upload up to two oldest rows, then compact the local queue once. This keeps
+// Upload up to three oldest rows, then compact the local queue once. This keeps
 // ordering and crash-safe retry behavior while avoiding a full queue rewrite
-// after every successful row.
+// after every successful row. Three rows per 250 ms batch drains a large
+// offline backlog quickly without starving the live 10-second send slot.
 bool flushBufferedBatch() {
-  constexpr size_t MAX_BATCH = 2;
+  constexpr size_t MAX_BATCH = 3;
   String lines[MAX_BATCH];
   bool fromSd = false;
   const size_t count = bufferReadAll(lines, MAX_BATCH, &fromSd);
@@ -5858,11 +5859,7 @@ void loop() {
           ((latestSendNow + interval - 1) / interval) * interval;
     }
     if (latestSendNow >= nextFirebaseSendEpoch) {
-      const bool stillOnScheduledSlot =
-          latestSendNow / FIREBASE_SEND_INTERVAL_SECONDS ==
-          nextFirebaseSendEpoch / FIREBASE_SEND_INTERVAL_SECONDS;
-      if (stillOnScheduledSlot && networkAvailable &&
-          hasCurrentTankAssignment() && !cloudOutage) {
+      if (networkAvailable && hasCurrentTankAssignment() && !cloudOutage) {
         // Whether it succeeds or fails, wait for the next wall-clock slot.
         // Immediate retries amplify weak-link TLS failures and can exhaust
         // the SSL layer.
@@ -5872,7 +5869,7 @@ void loop() {
         now = millis();
       }
       // Recompute after a possible synchronous Firestore call, so a slow
-      // request skips any slots that elapsed while it was in progress.
+      // request advances cleanly to the next fixed wall-clock slot (:00, :10, :20...).
       time(&latestSendNow);
       if (latestSendNow >= 1577836800) {
         nextFirebaseSendEpoch =
