@@ -11,7 +11,9 @@ const { insightFor } = require("./insights");
 // Zero em dashes or en dashes.
 // ──────────────────────────────────────────────────────────────────────────────
 
-const CRITICAL_SHALLOW_DEPTH_CM = 16.0;
+// Water level thresholds: Low (Warning) < 5.0 cm, Critical < 3.0 cm
+const CRITICAL_SHALLOW_DEPTH_CM = 3.0;
+const LOW_SHALLOW_DEPTH_CM = 5.0;
 
 function isSensorRecovering(sensor, value, sensorTrends) {
   if (!sensorTrends || !sensorTrends[sensor]) return false;
@@ -98,6 +100,8 @@ function recommendationFor(
   // Ultrasonic water level context (value decreases as water evaporates/drops)
   const hasValidLevel = typeof waterLevel === "number" && Number.isFinite(waterLevel) && waterLevel > 0;
   const isCriticallyShallow = hasValidLevel && waterLevel < CRITICAL_SHALLOW_DEPTH_CM;
+  const isLowShallow = hasValidLevel && !isCriticallyShallow && waterLevel < LOW_SHALLOW_DEPTH_CM;
+  const isShallow = isCriticallyShallow || isLowShallow;
   const wlFalling = waterLevelTrend !== null && waterLevelTrend.direction === "falling";
   const wlRising = waterLevelTrend !== null && waterLevelTrend.direction === "rising";
   const wlDropCm =
@@ -285,12 +289,12 @@ function recommendationFor(
       );
       reduceFeeding = true;
     }
-    if ((wlFalling || isCriticallyShallow) && !waterRefillHandled) {
+    if ((wlFalling || isShallow) && !waterRefillHandled) {
       actions.push(
         "Water depth is low, and shallow water loses heat faster. Slowly add clean, pre-aerated aged water to restore depth and stabilize temperature after checking source water pH."
       );
       waterRefillHandled = true;
-    } else if (!wlFalling && !isCriticallyShallow) {
+    } else if (!wlFalling && !isShallow) {
       actions.push("Maintain proper water depth to stabilize temperature, and avoid adding cold refill water.");
     }
   } else if (tempClass === 2 && sensorTrends && sensorTrends.temperature) {
@@ -300,12 +304,12 @@ function recommendationFor(
       shadeHandled = true;
       aerationHandled = true;
     } else if (tempTrend.nearBoundary === "lower" && tempTrend.direction === "falling") {
-      if ((wlFalling || isCriticallyShallow) && !waterRefillHandled) {
+      if ((wlFalling || isShallow) && !waterRefillHandled) {
         actions.push(
           "Water depth is dropping while temperature is falling. Slowly add clean, pre-aerated aged water to restore depth and prevent rapid cooling after checking source water pH."
         );
         waterRefillHandled = true;
-      } else if (!wlFalling && !isCriticallyShallow) {
+      } else if (!wlFalling && !isShallow) {
         actions.push("Maintain proper water depth to keep water temperature stable.");
       }
     }
@@ -315,6 +319,11 @@ function recommendationFor(
   if (isCriticallyShallow && !waterRefillHandled) {
     actions.push(
       `Water depth is critically shallow at ${waterLevel.toFixed(1)} cm, which can expose hiding shelters and cause rapid temperature swings. Slowly top up with clean, pre-aerated aged water after checking source water pH.`
+    );
+    waterRefillHandled = true;
+  } else if (isLowShallow && !waterRefillHandled) {
+    actions.push(
+      `Water depth is low at ${waterLevel.toFixed(1)} cm. Slowly top up with clean, pre-aerated aged water to restore proper depth after checking source water pH.`
     );
     waterRefillHandled = true;
   } else if (wlFalling && !waterRefillHandled && wlDropCm !== null) {

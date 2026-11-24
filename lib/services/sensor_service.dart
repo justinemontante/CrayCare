@@ -230,8 +230,8 @@ class SensorService extends ChangeNotifier {
     }
 
     if (key == 'waterlevel') {
-      final critical = range['critical'] ?? 10.0;
-      final low = range['low'] ?? 15.0;
+      final critical = range['critical'] ?? 3.0;
+      final low = range['low'] ?? 5.0;
       if (value <= 0) return 'EMPTY';
       if (value <= critical) return 'CRITICAL';
       if (value <= low) return 'WARNING';

@@ -543,8 +543,8 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
 
   Future<void> _showWaterLevelEditor() {
     final config = SettingsService.instance.currentRanges['waterlevel']!;
-    final previousCritical = config['critical'] ?? 10.0;
-    final previousLow = config['low'] ?? 15.0;
+    final previousCritical = config['critical'] ?? 3.0;
+    final previousLow = config['low'] ?? 5.0;
     final criticalCtrl = TextEditingController(
       text: previousCritical.toStringAsFixed(0),
     );
@@ -869,7 +869,7 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
                       sensorKey == 'feedlevel'
                           ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)}% • Low ≤${min.toStringAsFixed(0)}%'
                           : sensorKey == 'waterlevel'
-                          ? 'Critical ≤${(range['critical'] ?? 10).toStringAsFixed(0)} • Low ≤${(range['low'] ?? 15).toStringAsFixed(0)}'
+                          ? 'Critical ≤${(range['critical'] ?? 3).toStringAsFixed(0)} • Low ≤${(range['low'] ?? 5).toStringAsFixed(0)}'
                           : sensorKey == 'do'
                           ? '≥ ${min.toStringAsFixed(1)}'
                           : '${min.toStringAsFixed(1)} – ${_formatMax(max)}',

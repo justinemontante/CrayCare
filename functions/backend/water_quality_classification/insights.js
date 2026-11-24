@@ -10,8 +10,9 @@ const FRIENDLY = {
   turbidity: "Turbidity",
 };
 
-// Normal operating depth reference for 8x4x1 ft (30.48 cm) tarpaulin grow-out tanks
-const CRITICAL_SHALLOW_DEPTH_CM = 16.0;
+// Water level thresholds: Low (Warning) < 5.0 cm, Critical < 3.0 cm
+const CRITICAL_SHALLOW_DEPTH_CM = 3.0;
+const LOW_SHALLOW_DEPTH_CM = 5.0;
 
 function joinNatural(items) {
   if (items.length <= 1) return items[0] || "";
@@ -204,6 +205,7 @@ function getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLev
 
   const hasValidLevel = typeof waterLevel === "number" && Number.isFinite(waterLevel) && waterLevel > 0;
   const isCriticallyShallow = hasValidLevel && waterLevel < CRITICAL_SHALLOW_DEPTH_CM;
+  const isLowShallow = hasValidLevel && !isCriticallyShallow && waterLevel < LOW_SHALLOW_DEPTH_CM;
 
   const wlFalling = waterLevelTrend && typeof waterLevelTrend === "object" && waterLevelTrend.direction === "falling";
   const wlRising = waterLevelTrend && typeof waterLevelTrend === "object" && waterLevelTrend.direction === "rising";
@@ -218,6 +220,11 @@ function getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLev
       return `In addition, water depth is critically shallow at ${depthText} cm, exposing shelters and causing the remaining water to heat up rapidly.`;
     }
     return `In addition, water depth is critically shallow at ${depthText} cm, which can expose hiding shelters, increase territorial stress, and amplify temperature swings.`;
+  }
+
+  if (isLowShallow) {
+    const depthText = waterLevel.toFixed(1);
+    return `In addition, water depth is low at ${depthText} cm. Top up with clean, pre-aerated aged water to maintain proper depth.`;
   }
 
   if (wlFalling && dropCm !== null) {

@@ -668,8 +668,8 @@ class DashboardScreenState extends State<DashboardScreen>
     final range = ranges[key];
     if (range == null) return '';
     if (key == 'waterlevel') {
-      final critical = range['critical'] ?? 10.0;
-      final low = range['low'] ?? 15.0;
+      final critical = range['critical'] ?? 3.0;
+      final low = range['low'] ?? 5.0;
       return 'Low ≤ ${low.toStringAsFixed(0)} • Critical ≤ ${critical.toStringAsFixed(0)} cm';
     }
     if (key == 'feedlevel') {
@@ -1864,8 +1864,8 @@ class DashboardScreenState extends State<DashboardScreen>
     final rMax = (range['max'] ?? 999.0).toDouble();
     final rUnit = _getUnit(sensorKey);
 
-    final waterCritical = (range['critical'] ?? 10.0).toDouble();
-    final waterLow = (range['low'] ?? 15.0).toDouble();
+    final waterCritical = (range['critical'] ?? 3.0).toDouble();
+    final waterLow = (range['low'] ?? 5.0).toDouble();
 
     final isMaxBound = rMax < 999.0;
     final rangeSpan = isMaxBound ? (rMax - rMin) : rMin;
