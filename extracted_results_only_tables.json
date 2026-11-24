@@ -1,0 +1,2235 @@
+[
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "27.5 °C",
+      "27.49 °C",
+      "0.010 °C",
+      "+0.030 °C"
+    ],
+    [
+      "2",
+      "27.5 °C",
+      "27.44 °C",
+      "0.060 °C",
+      "-0.020 °C"
+    ],
+    [
+      "3",
+      "27.5 °C",
+      "27.48 °C",
+      "0.020 °C",
+      "+0.020 °C"
+    ],
+    [
+      "4",
+      "27.5 °C",
+      "27.42 °C",
+      "0.080 °C",
+      "-0.040 °C"
+    ],
+    [
+      "5",
+      "27.5 °C",
+      "27.47 °C",
+      "0.030 °C",
+      "+0.010 °C"
+    ],
+    [
+      "Total (n = 5)",
+      "Ref: 27.500 °C",
+      "Mean: 27.460 °C",
+      "MAE: 0.040 °C",
+      "SD: 0.029 °C"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "27.9 °C",
+      "27.87 °C",
+      "0.030 °C",
+      "+0.006 °C"
+    ],
+    [
+      "2",
+      "27.9 °C",
+      "27.88 °C",
+      "0.020 °C",
+      "+0.016 °C"
+    ],
+    [
+      "3",
+      "27.9 °C",
+      "27.83 °C",
+      "0.070 °C",
+      "-0.034 °C"
+    ],
+    [
+      "4",
+      "27.9 °C",
+      "27.85 °C",
+      "0.050 °C",
+      "-0.014 °C"
+    ],
+    [
+      "5",
+      "27.9 °C",
+      "27.89 °C",
+      "0.010 °C",
+      "+0.026 °C"
+    ],
+    [
+      "Total (n = 5)",
+      "Ref: 27.900 °C",
+      "Mean: 27.864 °C",
+      "MAE: 0.036 °C",
+      "SD: 0.024 °C"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "26.9 °C",
+      "26.89 °C",
+      "0.010 °C",
+      "+0.038 °C"
+    ],
+    [
+      "2",
+      "26.9 °C",
+      "26.85 °C",
+      "0.050 °C",
+      "-0.002 °C"
+    ],
+    [
+      "3",
+      "26.9 °C",
+      "26.83 °C",
+      "0.070 °C",
+      "-0.022 °C"
+    ],
+    [
+      "4",
+      "26.9 °C",
+      "26.88 °C",
+      "0.020 °C",
+      "+0.028 °C"
+    ],
+    [
+      "5",
+      "26.9 °C",
+      "26.81 °C",
+      "0.090 °C",
+      "-0.042 °C"
+    ],
+    [
+      "Total (n = 5)",
+      "Ref: 26.900 °C",
+      "Mean: 26.852 °C",
+      "MAE: 0.048 °C",
+      "SD: 0.033 °C"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "28.3 °C",
+      "28.22 °C",
+      "0.080 °C",
+      "-0.032 °C"
+    ],
+    [
+      "2",
+      "28.3 °C",
+      "28.26 °C",
+      "0.040 °C",
+      "+0.008 °C"
+    ],
+    [
+      "3",
+      "28.3 °C",
+      "28.28 °C",
+      "0.020 °C",
+      "+0.028 °C"
+    ],
+    [
+      "4",
+      "28.3 °C",
+      "28.29 °C",
+      "0.010 °C",
+      "+0.038 °C"
+    ],
+    [
+      "5",
+      "28.3 °C",
+      "28.21 °C",
+      "0.090 °C",
+      "-0.042 °C"
+    ],
+    [
+      "Total (n = 5)",
+      "Ref: 28.300 °C",
+      "Mean: 28.252 °C",
+      "MAE: 0.048 °C",
+      "SD: 0.036 °C"
+    ]
+  ],
+  [
+    [
+      "Test Condition",
+      "Trials (n)",
+      "Reference",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Percentage Error"
+    ],
+    [
+      "27.5 °C setpoint",
+      "5",
+      "27.500 °C",
+      "27.460 °C",
+      "0.040 °C",
+      "0.029 °C",
+      "0.15%"
+    ],
+    [
+      "27.9 °C setpoint",
+      "5",
+      "27.900 °C",
+      "27.864 °C",
+      "0.036 °C",
+      "0.024 °C",
+      "0.13%"
+    ],
+    [
+      "26.9 °C setpoint",
+      "5",
+      "26.900 °C",
+      "26.852 °C",
+      "0.048 °C",
+      "0.033 °C",
+      "0.18%"
+    ],
+    [
+      "28.3 °C setpoint",
+      "5",
+      "28.300 °C",
+      "28.252 °C",
+      "0.048 °C",
+      "0.036 °C",
+      "0.17%"
+    ],
+    [
+      "Total / Overall",
+      "20 Trials",
+      "Avg: 27.650 °C",
+      "Avg: 27.607 °C",
+      "MAE: 0.043 °C",
+      "SD: 0.024–0.036 °C",
+      "Avg: 0.16%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "9 cm",
+      "8.8 cm",
+      "0.200 cm",
+      "-0.070 cm"
+    ],
+    [
+      "2",
+      "9 cm",
+      "8.9 cm",
+      "0.100 cm",
+      "+0.030 cm"
+    ],
+    [
+      "3",
+      "9 cm",
+      "9 cm",
+      "0.000 cm",
+      "+0.130 cm"
+    ],
+    [
+      "4",
+      "9 cm",
+      "8.7 cm",
+      "0.300 cm",
+      "-0.170 cm"
+    ],
+    [
+      "5",
+      "9 cm",
+      "8.9 cm",
+      "0.100 cm",
+      "+0.030 cm"
+    ],
+    [
+      "6",
+      "9 cm",
+      "9 cm",
+      "0.000 cm",
+      "+0.130 cm"
+    ],
+    [
+      "7",
+      "9 cm",
+      "8.7 cm",
+      "0.300 cm",
+      "-0.170 cm"
+    ],
+    [
+      "8",
+      "9 cm",
+      "8.8 cm",
+      "0.200 cm",
+      "-0.070 cm"
+    ],
+    [
+      "9",
+      "9 cm",
+      "8.9 cm",
+      "0.100 cm",
+      "+0.030 cm"
+    ],
+    [
+      "10",
+      "9 cm",
+      "9 cm",
+      "0.000 cm",
+      "+0.130 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 9.000 cm",
+      "Mean: 8.870 cm",
+      "MAE: 0.130 cm",
+      "SD: 0.116 cm"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "8 cm",
+      "7.9 cm",
+      "0.100 cm",
+      "+0.042 cm"
+    ],
+    [
+      "2",
+      "8 cm",
+      "8 cm",
+      "0.000 cm",
+      "+0.142 cm"
+    ],
+    [
+      "3",
+      "8 cm",
+      "7.8 cm",
+      "0.200 cm",
+      "-0.058 cm"
+    ],
+    [
+      "4",
+      "8 cm",
+      "7.7 cm",
+      "0.300 cm",
+      "-0.158 cm"
+    ],
+    [
+      "5",
+      "8 cm",
+      "8 cm",
+      "0.000 cm",
+      "+0.142 cm"
+    ],
+    [
+      "6",
+      "8 cm",
+      "7.78 cm",
+      "0.220 cm",
+      "-0.078 cm"
+    ],
+    [
+      "7",
+      "8 cm",
+      "7.9 cm",
+      "0.100 cm",
+      "+0.042 cm"
+    ],
+    [
+      "8",
+      "8 cm",
+      "8 cm",
+      "0.000 cm",
+      "+0.142 cm"
+    ],
+    [
+      "9",
+      "8 cm",
+      "7.6 cm",
+      "0.400 cm",
+      "-0.258 cm"
+    ],
+    [
+      "10",
+      "8 cm",
+      "7.9 cm",
+      "0.100 cm",
+      "+0.042 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 8.000 cm",
+      "Mean: 7.858 cm",
+      "MAE: 0.142 cm",
+      "SD: 0.136 cm"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "6 cm",
+      "5.8 cm",
+      "0.200 cm",
+      "-0.050 cm"
+    ],
+    [
+      "2",
+      "6 cm",
+      "6 cm",
+      "0.000 cm",
+      "+0.150 cm"
+    ],
+    [
+      "3",
+      "6 cm",
+      "5.9 cm",
+      "0.100 cm",
+      "+0.050 cm"
+    ],
+    [
+      "4",
+      "6 cm",
+      "5.7 cm",
+      "0.300 cm",
+      "-0.150 cm"
+    ],
+    [
+      "5",
+      "6 cm",
+      "6 cm",
+      "0.000 cm",
+      "+0.150 cm"
+    ],
+    [
+      "6",
+      "6 cm",
+      "5.8 cm",
+      "0.200 cm",
+      "-0.050 cm"
+    ],
+    [
+      "7",
+      "6 cm",
+      "5.9 cm",
+      "0.100 cm",
+      "+0.050 cm"
+    ],
+    [
+      "8",
+      "6 cm",
+      "5.6 cm",
+      "0.400 cm",
+      "-0.250 cm"
+    ],
+    [
+      "9",
+      "6 cm",
+      "5.8 cm",
+      "0.200 cm",
+      "-0.050 cm"
+    ],
+    [
+      "10",
+      "6 cm",
+      "6 cm",
+      "0.000 cm",
+      "+0.150 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 6.000 cm",
+      "Mean: 5.850 cm",
+      "MAE: 0.150 cm",
+      "SD: 0.135 cm"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "7 cm",
+      "6.8 cm",
+      "0.200 cm",
+      "-0.040 cm"
+    ],
+    [
+      "2",
+      "7 cm",
+      "6.7 cm",
+      "0.300 cm",
+      "-0.140 cm"
+    ],
+    [
+      "3",
+      "7 cm",
+      "7 cm",
+      "0.000 cm",
+      "+0.160 cm"
+    ],
+    [
+      "4",
+      "7 cm",
+      "6.9 cm",
+      "0.100 cm",
+      "+0.060 cm"
+    ],
+    [
+      "5",
+      "7 cm",
+      "6.6 cm",
+      "0.400 cm",
+      "-0.240 cm"
+    ],
+    [
+      "6",
+      "7 cm",
+      "7 cm",
+      "0.000 cm",
+      "+0.160 cm"
+    ],
+    [
+      "7",
+      "7 cm",
+      "6.8 cm",
+      "0.200 cm",
+      "-0.040 cm"
+    ],
+    [
+      "8",
+      "7 cm",
+      "6.7 cm",
+      "0.300 cm",
+      "-0.140 cm"
+    ],
+    [
+      "9",
+      "7 cm",
+      "7 cm",
+      "0.000 cm",
+      "+0.160 cm"
+    ],
+    [
+      "10",
+      "7 cm",
+      "6.9 cm",
+      "0.100 cm",
+      "+0.060 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 7.000 cm",
+      "Mean: 6.840 cm",
+      "MAE: 0.160 cm",
+      "SD: 0.143 cm"
+    ]
+  ],
+  [
+    [
+      "Test Distance",
+      "Trials (n)",
+      "Reference",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Percentage Error"
+    ],
+    [
+      "9 cm target distance",
+      "10",
+      "9.000 cm",
+      "8.870 cm",
+      "0.130 cm",
+      "0.116 cm",
+      "1.44%"
+    ],
+    [
+      "8 cm target distance",
+      "10",
+      "8.000 cm",
+      "7.858 cm",
+      "0.142 cm",
+      "0.136 cm",
+      "1.78%"
+    ],
+    [
+      "6 cm target distance",
+      "10",
+      "6.000 cm",
+      "5.850 cm",
+      "0.150 cm",
+      "0.135 cm",
+      "2.50%"
+    ],
+    [
+      "7 cm target distance",
+      "10",
+      "7.000 cm",
+      "6.840 cm",
+      "0.160 cm",
+      "0.143 cm",
+      "2.29%"
+    ],
+    [
+      "Total / Overall",
+      "40 Trials",
+      "Avg: 7.500 cm",
+      "Avg: 7.355 cm",
+      "MAE: 0.145 cm",
+      "SD: 0.116–0.143 cm",
+      "Avg: 1.93%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "16 cm",
+      "15.9 cm",
+      "0.100 cm",
+      "-0.239 cm"
+    ],
+    [
+      "2",
+      "16 cm",
+      "15.8 cm",
+      "0.200 cm",
+      "-0.339 cm"
+    ],
+    [
+      "3",
+      "16 cm",
+      "16.1 cm",
+      "0.100 cm",
+      "-0.039 cm"
+    ],
+    [
+      "4",
+      "16 cm",
+      "16 cm",
+      "0.000 cm",
+      "-0.139 cm"
+    ],
+    [
+      "5",
+      "16 cm",
+      "16.3 cm",
+      "0.300 cm",
+      "+0.161 cm"
+    ],
+    [
+      "6",
+      "16 cm",
+      "15.7 cm",
+      "0.300 cm",
+      "-0.439 cm"
+    ],
+    [
+      "7",
+      "16 cm",
+      "16.5 cm",
+      "0.500 cm",
+      "+0.361 cm"
+    ],
+    [
+      "8",
+      "16 cm",
+      "16.8 cm",
+      "0.800 cm",
+      "+0.661 cm"
+    ],
+    [
+      "9",
+      "16 cm",
+      "15.89 cm",
+      "0.110 cm",
+      "-0.249 cm"
+    ],
+    [
+      "10",
+      "16 cm",
+      "16.4 cm",
+      "0.400 cm",
+      "+0.261 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 16.000 cm",
+      "Mean: 16.139 cm",
+      "MAE: 0.281 cm",
+      "SD: 0.351 cm"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "0 cm",
+      "0 cm",
+      "0.000 cm",
+      "-0.206 cm"
+    ],
+    [
+      "2",
+      "0 cm",
+      "0.1 cm",
+      "0.100 cm",
+      "-0.106 cm"
+    ],
+    [
+      "3",
+      "0 cm",
+      "0.8 cm",
+      "0.800 cm",
+      "+0.594 cm"
+    ],
+    [
+      "4",
+      "0 cm",
+      "0.4 cm",
+      "0.400 cm",
+      "+0.194 cm"
+    ],
+    [
+      "5",
+      "0 cm",
+      "0.02 cm",
+      "0.020 cm",
+      "-0.186 cm"
+    ],
+    [
+      "6",
+      "0 cm",
+      "0.5 cm",
+      "0.500 cm",
+      "+0.294 cm"
+    ],
+    [
+      "7",
+      "0 cm",
+      "0 cm",
+      "0.000 cm",
+      "-0.206 cm"
+    ],
+    [
+      "8",
+      "0 cm",
+      "0.04 cm",
+      "0.040 cm",
+      "-0.166 cm"
+    ],
+    [
+      "9",
+      "0 cm",
+      "0.2 cm",
+      "0.200 cm",
+      "-0.006 cm"
+    ],
+    [
+      "10",
+      "0 cm",
+      "0 cm",
+      "0.000 cm",
+      "-0.206 cm"
+    ],
+    [
+      "Total (n = 10)",
+      "Ref: 0.000 cm",
+      "Mean: 0.206 cm",
+      "MAE: 0.206 cm",
+      "SD: 0.274 cm"
+    ]
+  ],
+  [
+    [
+      "Hopper Condition",
+      "Trials (n)",
+      "Reference",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Error vs Container Height"
+    ],
+    [
+      "16 cm distance (Empty hopper)",
+      "10",
+      "16.000 cm",
+      "16.139 cm",
+      "0.281 cm",
+      "0.351 cm",
+      "1.76%"
+    ],
+    [
+      "0 cm distance (Full hopper)",
+      "10",
+      "0.000 cm",
+      "0.206 cm",
+      "0.206 cm",
+      "0.274 cm",
+      "1.29%"
+    ],
+    [
+      "Total / Overall",
+      "20 Trials",
+      "Avg: 8.000 cm",
+      "Avg: 8.173 cm",
+      "MAE: 0.244 cm",
+      "SD: 0.274–0.351 cm",
+      "Avg: 1.53%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Target",
+      "Actual Weight",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "1 g",
+      "1.7 g",
+      "0.700 g",
+      "+0.350 g"
+    ],
+    [
+      "2",
+      "1 g",
+      "1.3 g",
+      "0.300 g",
+      "-0.050 g"
+    ],
+    [
+      "3",
+      "1 g",
+      "0.9 g",
+      "0.100 g",
+      "-0.450 g"
+    ],
+    [
+      "4",
+      "1 g",
+      "1.1 g",
+      "0.100 g",
+      "-0.250 g"
+    ],
+    [
+      "5",
+      "1 g",
+      "1.8 g",
+      "0.800 g",
+      "+0.450 g"
+    ],
+    [
+      "6",
+      "1 g",
+      "1.5 g",
+      "0.500 g",
+      "+0.150 g"
+    ],
+    [
+      "7",
+      "1 g",
+      "1.6 g",
+      "0.600 g",
+      "+0.250 g"
+    ],
+    [
+      "8",
+      "1 g",
+      "1 g",
+      "0.000 g",
+      "-0.350 g"
+    ],
+    [
+      "9",
+      "1 g",
+      "1.2 g",
+      "0.200 g",
+      "-0.150 g"
+    ],
+    [
+      "10",
+      "1 g",
+      "1.4 g",
+      "0.400 g",
+      "+0.050 g"
+    ],
+    [
+      "Total (n = 10)",
+      "Target: 1.000 g",
+      "Mean: 1.350 g",
+      "MAE: 0.370 g",
+      "SD: 0.303 g"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Target",
+      "Actual Weight",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "2 g",
+      "2.5 g",
+      "0.500 g",
+      "+0.300 g"
+    ],
+    [
+      "2",
+      "2 g",
+      "2.7 g",
+      "0.700 g",
+      "+0.500 g"
+    ],
+    [
+      "3",
+      "2 g",
+      "1.9 g",
+      "0.100 g",
+      "-0.300 g"
+    ],
+    [
+      "4",
+      "2 g",
+      "2.3 g",
+      "0.300 g",
+      "+0.100 g"
+    ],
+    [
+      "5",
+      "2 g",
+      "2 g",
+      "0.000 g",
+      "-0.200 g"
+    ],
+    [
+      "6",
+      "2 g",
+      "2.4 g",
+      "0.400 g",
+      "+0.200 g"
+    ],
+    [
+      "7",
+      "2 g",
+      "2.1 g",
+      "0.100 g",
+      "-0.100 g"
+    ],
+    [
+      "8",
+      "2 g",
+      "1.8 g",
+      "0.200 g",
+      "-0.400 g"
+    ],
+    [
+      "9",
+      "2 g",
+      "1.7 g",
+      "0.300 g",
+      "-0.500 g"
+    ],
+    [
+      "10",
+      "2 g",
+      "2.6 g",
+      "0.600 g",
+      "+0.400 g"
+    ],
+    [
+      "Total (n = 10)",
+      "Target: 2.000 g",
+      "Mean: 2.200 g",
+      "MAE: 0.320 g",
+      "SD: 0.350 g"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Target",
+      "Actual Weight",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "3 g",
+      "3.3 g",
+      "0.300 g",
+      "-0.040 g"
+    ],
+    [
+      "2",
+      "3 g",
+      "3.6 g",
+      "0.600 g",
+      "+0.260 g"
+    ],
+    [
+      "3",
+      "3 g",
+      "2.8 g",
+      "0.200 g",
+      "-0.540 g"
+    ],
+    [
+      "4",
+      "3 g",
+      "3.4 g",
+      "0.400 g",
+      "+0.060 g"
+    ],
+    [
+      "5",
+      "3 g",
+      "3.9 g",
+      "0.900 g",
+      "+0.560 g"
+    ],
+    [
+      "6",
+      "3 g",
+      "3.1 g",
+      "0.100 g",
+      "-0.240 g"
+    ],
+    [
+      "7",
+      "3 g",
+      "3.7 g",
+      "0.700 g",
+      "+0.360 g"
+    ],
+    [
+      "8",
+      "3 g",
+      "3.5 g",
+      "0.500 g",
+      "+0.160 g"
+    ],
+    [
+      "9",
+      "3 g",
+      "2.9 g",
+      "0.100 g",
+      "-0.440 g"
+    ],
+    [
+      "10",
+      "3 g",
+      "3.2 g",
+      "0.200 g",
+      "-0.140 g"
+    ],
+    [
+      "Total (n = 10)",
+      "Target: 3.000 g",
+      "Mean: 3.340 g",
+      "MAE: 0.400 g",
+      "SD: 0.350 g"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Target",
+      "Actual Weight",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "5 g",
+      "6 g",
+      "1.000 g",
+      "+0.467 g"
+    ],
+    [
+      "2",
+      "5 g",
+      "5.9 g",
+      "0.900 g",
+      "+0.367 g"
+    ],
+    [
+      "3",
+      "5 g",
+      "5.6 g",
+      "0.600 g",
+      "+0.067 g"
+    ],
+    [
+      "4",
+      "5 g",
+      "5.7 g",
+      "0.700 g",
+      "+0.167 g"
+    ],
+    [
+      "5",
+      "5 g",
+      "5.2 g",
+      "0.200 g",
+      "-0.333 g"
+    ],
+    [
+      "6",
+      "5 g",
+      "4.8 g",
+      "0.200 g",
+      "-0.733 g"
+    ],
+    [
+      "Total (n = 6)",
+      "Target: 5.000 g",
+      "Mean: 5.533 g",
+      "MAE: 0.600 g",
+      "SD: 0.455 g"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Target",
+      "Actual Weight",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "10 g",
+      "11.1 g",
+      "1.100 g",
+      "+0.710 g"
+    ],
+    [
+      "2",
+      "10 g",
+      "9.8 g",
+      "0.200 g",
+      "-0.590 g"
+    ],
+    [
+      "3",
+      "10 g",
+      "10.4 g",
+      "0.400 g",
+      "+0.010 g"
+    ],
+    [
+      "4",
+      "10 g",
+      "10.9 g",
+      "0.900 g",
+      "+0.510 g"
+    ],
+    [
+      "5",
+      "10 g",
+      "10.2 g",
+      "0.200 g",
+      "-0.190 g"
+    ],
+    [
+      "6",
+      "10 g",
+      "10.7 g",
+      "0.700 g",
+      "+0.310 g"
+    ],
+    [
+      "7",
+      "10 g",
+      "9.9 g",
+      "0.100 g",
+      "-0.490 g"
+    ],
+    [
+      "8",
+      "10 g",
+      "10.3 g",
+      "0.300 g",
+      "-0.090 g"
+    ],
+    [
+      "9",
+      "10 g",
+      "10.5 g",
+      "0.500 g",
+      "+0.110 g"
+    ],
+    [
+      "10",
+      "10 g",
+      "10.1 g",
+      "0.100 g",
+      "-0.290 g"
+    ],
+    [
+      "Total (n = 10)",
+      "Target: 10.000 g",
+      "Mean: 10.390 g",
+      "MAE: 0.450 g",
+      "SD: 0.420 g"
+    ]
+  ],
+  [
+    [
+      "Target Ration",
+      "Trials (n)",
+      "Target Weight",
+      "Average Dispensed",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Percentage Error"
+    ],
+    [
+      "1 g target portion",
+      "10",
+      "1.000 g",
+      "1.350 g",
+      "0.370 g",
+      "0.303 g",
+      "37.0%"
+    ],
+    [
+      "2 g target portion",
+      "10",
+      "2.000 g",
+      "2.200 g",
+      "0.320 g",
+      "0.350 g",
+      "16.0%"
+    ],
+    [
+      "3 g target portion",
+      "10",
+      "3.000 g",
+      "3.340 g",
+      "0.400 g",
+      "0.350 g",
+      "13.3%"
+    ],
+    [
+      "5 g target portion",
+      "6",
+      "5.000 g",
+      "5.533 g",
+      "0.600 g",
+      "0.455 g",
+      "12.0%"
+    ],
+    [
+      "10 g target portion",
+      "10",
+      "10.000 g",
+      "10.390 g",
+      "0.450 g",
+      "0.420 g",
+      "4.5%"
+    ],
+    [
+      "Total / Overall",
+      "46 Trials",
+      "Avg: 3.848 g",
+      "Avg: 4.261 g",
+      "MAE: 0.413 g",
+      "SD: 0.303–0.455 g",
+      "Avg: 10.7%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "0 NTU",
+      "0 NTU",
+      "0.000 NTU",
+      "-0.150 NTU"
+    ],
+    [
+      "2",
+      "0 NTU",
+      "0.1 NTU",
+      "0.100 NTU",
+      "-0.050 NTU"
+    ],
+    [
+      "3",
+      "0 NTU",
+      "0.3 NTU",
+      "0.300 NTU",
+      "+0.150 NTU"
+    ],
+    [
+      "4",
+      "0 NTU",
+      "0.2 NTU",
+      "0.200 NTU",
+      "+0.050 NTU"
+    ],
+    [
+      "Total (n = 4)",
+      "Nominal: 0 NTU",
+      "Mean: 0.150 NTU",
+      "MAE: 0.150 NTU",
+      "SD: 0.129 NTU"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "500 NTU",
+      "490 NTU",
+      "10.000 NTU",
+      "-8.800 NTU"
+    ],
+    [
+      "2",
+      "500 NTU",
+      "478 NTU",
+      "22.000 NTU",
+      "-20.800 NTU"
+    ],
+    [
+      "3",
+      "500 NTU",
+      "505 NTU",
+      "5.000 NTU",
+      "+6.200 NTU"
+    ],
+    [
+      "4",
+      "500 NTU",
+      "510 NTU",
+      "10.000 NTU",
+      "+11.200 NTU"
+    ],
+    [
+      "5",
+      "500 NTU",
+      "498 NTU",
+      "2.000 NTU",
+      "-0.800 NTU"
+    ],
+    [
+      "6",
+      "500 NTU",
+      "480 NTU",
+      "20.000 NTU",
+      "-18.800 NTU"
+    ],
+    [
+      "7",
+      "500 NTU",
+      "518 NTU",
+      "18.000 NTU",
+      "+19.200 NTU"
+    ],
+    [
+      "8",
+      "500 NTU",
+      "503 NTU",
+      "3.000 NTU",
+      "+4.200 NTU"
+    ],
+    [
+      "9",
+      "500 NTU",
+      "517 NTU",
+      "17.000 NTU",
+      "+18.200 NTU"
+    ],
+    [
+      "10",
+      "500 NTU",
+      "489 NTU",
+      "11.000 NTU",
+      "-9.800 NTU"
+    ],
+    [
+      "Total (n = 10)",
+      "Nominal: 500 NTU",
+      "Mean: 498.800 NTU",
+      "MAE: 11.800 NTU",
+      "SD: 14.305 NTU"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "1000 NTU",
+      "1023 NTU",
+      "23.000 NTU",
+      "+24.000 NTU"
+    ],
+    [
+      "2",
+      "1000 NTU",
+      "988 NTU",
+      "12.000 NTU",
+      "-11.000 NTU"
+    ],
+    [
+      "3",
+      "1000 NTU",
+      "997 NTU",
+      "3.000 NTU",
+      "-2.000 NTU"
+    ],
+    [
+      "4",
+      "1000 NTU",
+      "1005 NTU",
+      "5.000 NTU",
+      "+6.000 NTU"
+    ],
+    [
+      "5",
+      "1000 NTU",
+      "978 NTU",
+      "22.000 NTU",
+      "-21.000 NTU"
+    ],
+    [
+      "6",
+      "1000 NTU",
+      "1015 NTU",
+      "15.000 NTU",
+      "+16.000 NTU"
+    ],
+    [
+      "7",
+      "1000 NTU",
+      "1000 NTU",
+      "0.000 NTU",
+      "+1.000 NTU"
+    ],
+    [
+      "8",
+      "1000 NTU",
+      "1010 NTU",
+      "10.000 NTU",
+      "+11.000 NTU"
+    ],
+    [
+      "9",
+      "1000 NTU",
+      "995 NTU",
+      "5.000 NTU",
+      "-4.000 NTU"
+    ],
+    [
+      "10",
+      "1000 NTU",
+      "979 NTU",
+      "21.000 NTU",
+      "-20.000 NTU"
+    ],
+    [
+      "Total (n = 10)",
+      "Nominal: 1000 NTU",
+      "Mean: 999.000 NTU",
+      "MAE: 11.600 NTU",
+      "SD: 14.802 NTU"
+    ]
+  ],
+  [
+    [
+      "Water Sample",
+      "Trials (n)",
+      "Reference",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Percentage Error"
+    ],
+    [
+      "Clear Distilled Water (0 NTU)",
+      "4",
+      "0.000 NTU",
+      "0.150 NTU",
+      "0.150 NTU",
+      "0.129 NTU",
+      "Clean Baseline"
+    ],
+    [
+      "Cloudy Water (500 NTU)",
+      "10",
+      "500.000 NTU",
+      "498.800 NTU",
+      "11.800 NTU",
+      "14.305 NTU",
+      "2.36% error"
+    ],
+    [
+      "Very Turbid Water (1,000 NTU)",
+      "10",
+      "1,000.000 NTU",
+      "999.000 NTU",
+      "11.600 NTU",
+      "14.802 NTU",
+      "1.16% error"
+    ],
+    [
+      "Total / Overall",
+      "24 Trials",
+      "Avg: 625.000 NTU",
+      "Avg: 623.775 NTU",
+      "MAE: 9.775 NTU",
+      "SD: 14.3–14.8 NTU",
+      "Avg: 1.56%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "4.01 pH",
+      "4.05 pH",
+      "0.040 pH",
+      "-0.015 pH"
+    ],
+    [
+      "2",
+      "4.01 pH",
+      "4.1 pH",
+      "0.090 pH",
+      "+0.035 pH"
+    ],
+    [
+      "3",
+      "4.01 pH",
+      "4.23 pH",
+      "0.220 pH",
+      "+0.165 pH"
+    ],
+    [
+      "4",
+      "4.01 pH",
+      "4.18 pH",
+      "0.170 pH",
+      "+0.115 pH"
+    ],
+    [
+      "5",
+      "4.01 pH",
+      "4.03 pH",
+      "0.020 pH",
+      "-0.035 pH"
+    ],
+    [
+      "6",
+      "4.01 pH",
+      "3.98 pH",
+      "0.030 pH",
+      "-0.085 pH"
+    ],
+    [
+      "7",
+      "4.01 pH",
+      "3.96 pH",
+      "0.050 pH",
+      "-0.105 pH"
+    ],
+    [
+      "8",
+      "4.01 pH",
+      "4.08 pH",
+      "0.070 pH",
+      "+0.015 pH"
+    ],
+    [
+      "9",
+      "4.01 pH",
+      "3.89 pH",
+      "0.120 pH",
+      "-0.175 pH"
+    ],
+    [
+      "10",
+      "4.01 pH",
+      "4.15 pH",
+      "0.140 pH",
+      "+0.085 pH"
+    ],
+    [
+      "Total (n = 10)",
+      "Buffer: 4.010 pH",
+      "Mean: 4.065 pH",
+      "MAE: 0.095 pH",
+      "SD: 0.105 pH"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "6.86 pH",
+      "7.02 pH",
+      "0.160 pH",
+      "+0.098 pH"
+    ],
+    [
+      "2",
+      "6.86 pH",
+      "6.81 pH",
+      "0.050 pH",
+      "-0.112 pH"
+    ],
+    [
+      "3",
+      "6.86 pH",
+      "6.67 pH",
+      "0.190 pH",
+      "-0.252 pH"
+    ],
+    [
+      "4",
+      "6.86 pH",
+      "7.03 pH",
+      "0.170 pH",
+      "+0.108 pH"
+    ],
+    [
+      "5",
+      "6.86 pH",
+      "6.95 pH",
+      "0.090 pH",
+      "+0.028 pH"
+    ],
+    [
+      "6",
+      "6.86 pH",
+      "6.79 pH",
+      "0.070 pH",
+      "-0.132 pH"
+    ],
+    [
+      "7",
+      "6.86 pH",
+      "6.92 pH",
+      "0.060 pH",
+      "-0.002 pH"
+    ],
+    [
+      "8",
+      "6.86 pH",
+      "7.1 pH",
+      "0.240 pH",
+      "+0.178 pH"
+    ],
+    [
+      "9",
+      "6.86 pH",
+      "7.06 pH",
+      "0.200 pH",
+      "+0.138 pH"
+    ],
+    [
+      "10",
+      "6.86 pH",
+      "6.87 pH",
+      "0.010 pH",
+      "-0.052 pH"
+    ],
+    [
+      "Total (n = 10)",
+      "Buffer: 6.860 pH",
+      "Mean: 6.922 pH",
+      "MAE: 0.124 pH",
+      "SD: 0.137 pH"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reference",
+      "IoT Reading",
+      "Error (Difference)",
+      "Spread from Mean"
+    ],
+    [
+      "1",
+      "9.18 pH",
+      "9.26 pH",
+      "0.080 pH",
+      "+0.095 pH"
+    ],
+    [
+      "2",
+      "9.18 pH",
+      "9.3 pH",
+      "0.120 pH",
+      "+0.135 pH"
+    ],
+    [
+      "3",
+      "9.18 pH",
+      "9.13 pH",
+      "0.050 pH",
+      "-0.035 pH"
+    ],
+    [
+      "4",
+      "9.18 pH",
+      "9.03 pH",
+      "0.150 pH",
+      "-0.135 pH"
+    ],
+    [
+      "5",
+      "9.18 pH",
+      "9.23 pH",
+      "0.050 pH",
+      "+0.065 pH"
+    ],
+    [
+      "6",
+      "9.18 pH",
+      "9.2 pH",
+      "0.020 pH",
+      "+0.035 pH"
+    ],
+    [
+      "7",
+      "9.18 pH",
+      "9.1 pH",
+      "0.080 pH",
+      "-0.065 pH"
+    ],
+    [
+      "8",
+      "9.18 pH",
+      "9.05 pH",
+      "0.130 pH",
+      "-0.115 pH"
+    ],
+    [
+      "9",
+      "9.18 pH",
+      "9.14 pH",
+      "0.040 pH",
+      "-0.025 pH"
+    ],
+    [
+      "10",
+      "9.18 pH",
+      "9.21 pH",
+      "0.030 pH",
+      "+0.045 pH"
+    ],
+    [
+      "Total (n = 10)",
+      "Buffer: 9.180 pH",
+      "Mean: 9.165 pH",
+      "MAE: 0.075 pH",
+      "SD: 0.090 pH"
+    ]
+  ],
+  [
+    [
+      "Buffer Solution",
+      "Trials (n)",
+      "Reference",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Percentage Error"
+    ],
+    [
+      "Acidic Buffer (pH 4.01)",
+      "10",
+      "4.010 pH",
+      "4.065 pH",
+      "0.095 pH",
+      "0.105 pH",
+      "2.37%"
+    ],
+    [
+      "Neutral Buffer (pH 6.86)",
+      "10",
+      "6.860 pH",
+      "6.922 pH",
+      "0.124 pH",
+      "0.137 pH",
+      "1.81%"
+    ],
+    [
+      "Alkaline Buffer (pH 9.18)",
+      "10",
+      "9.180 pH",
+      "9.165 pH",
+      "0.075 pH",
+      "0.090 pH",
+      "0.82%"
+    ],
+    [
+      "Total / Overall",
+      "30 Trials",
+      "Avg: 6.683 pH",
+      "Avg: 6.717 pH",
+      "MAE: 0.098 pH",
+      "SD: 0.090–0.137 pH",
+      "Avg: 1.47%"
+    ]
+  ],
+  [
+    [
+      "Trial",
+      "Reagent Drops",
+      "Titration Reference",
+      "IoT Measured DO",
+      "Error (Difference)"
+    ],
+    [
+      "1",
+      "15",
+      "7.5",
+      "7.4",
+      "0.1"
+    ],
+    [
+      "2",
+      "13",
+      "6.5",
+      "6.2",
+      "0.3"
+    ],
+    [
+      "3",
+      "16",
+      "8.0",
+      "7.8",
+      "0.2"
+    ],
+    [
+      "4",
+      "8",
+      "4.0",
+      "3.8",
+      "0.2"
+    ],
+    [
+      "5",
+      "17",
+      "8.5",
+      "8.3",
+      "0.2"
+    ],
+    [
+      "6",
+      "11",
+      "5.5",
+      "5.2",
+      "0.3"
+    ],
+    [
+      "7",
+      "9",
+      "4.5",
+      "4.4",
+      "0.1"
+    ],
+    [
+      "8",
+      "14",
+      "7.0",
+      "6.8",
+      "0.2"
+    ],
+    [
+      "9",
+      "12",
+      "6.0",
+      "5.7",
+      "0.3"
+    ],
+    [
+      "10",
+      "18",
+      "9.0",
+      "8.7",
+      "0.3"
+    ],
+    [
+      "Total: 10 Trials",
+      "Avg: 12.8 Drops",
+      "Mean Ref: 6.400 mg/L",
+      "Mean IoT: 6.430 mg/L",
+      "MAE: 0.220 mg/L"
+    ]
+  ],
+  [
+    [
+      "Component",
+      "Test Condition",
+      "Trials (n)",
+      "Reference Tool",
+      "Average Reading",
+      "Accuracy (MAE)",
+      "Consistency (SD)",
+      "Performance Rating"
+    ],
+    [
+      "Water Temperature",
+      "27.5 °C setpoint",
+      "5",
+      "Digital Thermometer",
+      "27.460 °C",
+      "0.040 °C",
+      "0.029 °C",
+      "Low error (<0.05 °C)"
+    ],
+    [
+      "Water Temperature",
+      "27.9 °C setpoint",
+      "5",
+      "Digital Thermometer",
+      "27.864 °C",
+      "0.036 °C",
+      "0.024 °C",
+      "Low error (<0.05 °C)"
+    ],
+    [
+      "Water Temperature",
+      "26.9 °C setpoint",
+      "5",
+      "Digital Thermometer",
+      "26.852 °C",
+      "0.048 °C",
+      "0.033 °C",
+      "Low error (<0.05 °C)"
+    ],
+    [
+      "Water Temperature",
+      "28.3 °C setpoint",
+      "5",
+      "Digital Thermometer",
+      "28.252 °C",
+      "0.048 °C",
+      "0.036 °C",
+      "Low error (<0.05 °C)"
+    ],
+    [
+      "Water-Level Sensor",
+      "9 cm target depth",
+      "10",
+      "Metric Ruler",
+      "8.870 cm",
+      "0.130 cm",
+      "0.116 cm",
+      "Low error (~1.3 mm)"
+    ],
+    [
+      "Water-Level Sensor",
+      "8 cm target depth",
+      "10",
+      "Metric Ruler",
+      "7.858 cm",
+      "0.142 cm",
+      "0.136 cm",
+      "Low error (~1.4 mm)"
+    ],
+    [
+      "Water-Level Sensor",
+      "6 cm target depth",
+      "10",
+      "Metric Ruler",
+      "5.850 cm",
+      "0.150 cm",
+      "0.135 cm",
+      "Low error (~1.5 mm)"
+    ],
+    [
+      "Water-Level Sensor",
+      "7 cm target depth",
+      "10",
+      "Metric Ruler",
+      "6.840 cm",
+      "0.160 cm",
+      "0.143 cm",
+      "Low error (~1.6 mm)"
+    ],
+    [
+      "Feeder Level Sensor",
+      "16 cm (Empty hopper)",
+      "10",
+      "Metric Ruler",
+      "16.139 cm",
+      "0.281 cm",
+      "0.351 cm",
+      "Within range (<3 mm error)"
+    ],
+    [
+      "Feeder Level Sensor",
+      "0 cm (Full hopper)",
+      "10",
+      "Metric Ruler",
+      "0.206 cm",
+      "0.206 cm",
+      "0.274 cm",
+      "Within range (~2 mm error)"
+    ],
+    [
+      "Automatic Feeder",
+      "1 g target ration",
+      "10",
+      "Digital Scale",
+      "1.350 g",
+      "0.370 g",
+      "0.303 g",
+      "Acceptable (Pellet Size Limit)"
+    ],
+    [
+      "Automatic Feeder",
+      "2 g target ration",
+      "10",
+      "Digital Scale",
+      "2.200 g",
+      "0.320 g",
+      "0.350 g",
+      "Consistent (0.32 g error)"
+    ],
+    [
+      "Automatic Feeder",
+      "3 g target ration",
+      "10",
+      "Digital Scale",
+      "3.340 g",
+      "0.400 g",
+      "0.350 g",
+      "Consistent (0.40 g error)"
+    ],
+    [
+      "Automatic Feeder",
+      "5 g target ration",
+      "6",
+      "Digital Scale",
+      "5.533 g",
+      "0.600 g",
+      "0.455 g",
+      "Consistent (0.60 g error)"
+    ],
+    [
+      "Automatic Feeder",
+      "10 g target ration",
+      "10",
+      "Digital Scale",
+      "10.390 g",
+      "0.450 g",
+      "0.420 g",
+      "Low error (4.5%)"
+    ],
+    [
+      "Turbidity Sensor",
+      "0 NTU (Clear water)",
+      "4",
+      "Distilled Water",
+      "0.150 NTU",
+      "0.150 NTU",
+      "0.129 NTU",
+      "Stable zero baseline"
+    ],
+    [
+      "Turbidity Sensor",
+      "500 NTU (Cloudy water)",
+      "10",
+      "Kaolin Solution",
+      "498.800 NTU",
+      "11.800 NTU",
+      "14.305 NTU",
+      "Low error (2.36%)"
+    ],
+    [
+      "Turbidity Sensor",
+      "1,000 NTU (Very turbid)",
+      "10",
+      "Kaolin Solution",
+      "999.000 NTU",
+      "11.600 NTU",
+      "14.802 NTU",
+      "Low error (1.16%)"
+    ],
+    [
+      "Water pH Sensor",
+      "pH 4.01 Buffer",
+      "10",
+      "Standard Buffer",
+      "4.065 pH",
+      "0.095 pH",
+      "0.105 pH",
+      "Within tolerance (<0.10 pH error)"
+    ],
+    [
+      "Water pH Sensor",
+      "pH 6.86 Buffer",
+      "10",
+      "Standard Buffer",
+      "6.922 pH",
+      "0.124 pH",
+      "0.137 pH",
+      "Within tolerance (~0.12 pH error)"
+    ],
+    [
+      "Water pH Sensor",
+      "pH 9.18 Buffer",
+      "10",
+      "Standard Buffer",
+      "9.165 pH",
+      "0.075 pH",
+      "0.090 pH",
+      "Within tolerance (<0.08 pH error)"
+    ],
+    [
+      "Dissolved Oxygen",
+      "4.0 to 9.0 mg/L range",
+      "10",
+      "Chemical Titration Kit",
+      "6.430 mg/L",
+      "0.220 mg/L",
+      "1.658 mg/L",
+      "Within kit resolution (<0.5 drop)"
+    ],
+    [
+      "System Overall",
+      "7 Hardware Subsystems",
+      "190 Total Trials",
+      "Standard Laboratory Tools",
+      "—",
+      "All Subsystems Met Criteria",
+      "Consistent Across Range",
+      "Operational During Testing"
+    ]
+  ]
+]
