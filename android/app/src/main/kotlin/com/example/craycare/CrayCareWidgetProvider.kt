@@ -25,8 +25,20 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_TOGGLE_INSIGHT) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val expanded = prefs.getBoolean("widget_insight_expanded", false)
+            prefs.edit().putBoolean("widget_insight_expanded", !expanded).apply()
+            updateAllWidgets(context)
+        } else {
+            super.onReceive(context, intent)
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "craycare_live_widget"
+        private const val ACTION_TOGGLE_INSIGHT = "com.example.craycare.TOGGLE_INSIGHT"
 
         fun saveAndUpdate(context: Context, snapshot: Map<*, *>) {
             val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -83,13 +95,56 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             ) ?: "MODEL PENDING"
             views.setTextViewText(R.id.widget_classification_status, classificationStatus)
             views.setTextColor(R.id.widget_classification_status, statusColor(classificationStatus))
-            views.setTextViewText(
+
+            val insightText = prefs.getString(
+                "widget_classification_insight",
+                if (signedIn) "Classification model is not connected" else "Open CrayCare to sign in",
+            ) ?: ""
+            val recommendationText = prefs.getString(
+                "widget_classification_recommendation",
+                "",
+            ) ?: ""
+            val isExpanded = prefs.getBoolean("widget_insight_expanded", false)
+            val canExpand = recommendationText.isNotEmpty() || insightText.length > 65
+
+            views.setTextViewText(R.id.widget_classification_insight, insightText)
+            views.setInt(
                 R.id.widget_classification_insight,
-                prefs.getString(
-                    "widget_classification_insight",
-                    if (signedIn) "Classification model is not connected" else "Open CrayCare to sign in",
-                ),
+                "setMaxLines",
+                if (isExpanded) 30 else 2,
             )
+
+            val showRecommendation = isExpanded && recommendationText.isNotEmpty()
+            views.setViewVisibility(
+                R.id.widget_classification_recommendation,
+                if (showRecommendation) View.VISIBLE else View.GONE,
+            )
+            if (showRecommendation) {
+                views.setTextViewText(
+                    R.id.widget_classification_recommendation,
+                    "Recommendation: $recommendationText",
+                )
+            }
+
+            views.setViewVisibility(
+                R.id.widget_insight_toggle,
+                if (canExpand) View.VISIBLE else View.GONE,
+            )
+            views.setTextViewText(
+                R.id.widget_insight_toggle,
+                if (isExpanded) "▲ Show less" else "▼ Show more",
+            )
+
+            val toggleIntent = Intent(context, CrayCareWidgetProvider::class.java).apply {
+                action = ACTION_TOGGLE_INSIGHT
+            }
+            val togglePendingIntent = PendingIntent.getBroadcast(
+                context,
+                4101,
+                toggleIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            views.setOnClickPendingIntent(R.id.widget_insight_toggle, togglePendingIntent)
 
             setSensor(views, prefs, "temperature", R.id.widget_temp_value, R.id.widget_temp_status)
             setSensor(views, prefs, "ph", R.id.widget_ph_value, R.id.widget_ph_status)

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/control_types.dart';
 import 'connectivity_service.dart';
@@ -14,7 +15,7 @@ import 'settings_service.dart';
 /// Keeps the Android home-screen widget synchronized with CrayCare's existing
 /// realtime services. The native widget reads this compact cached snapshot, so
 /// it remains useful even when Android recreates the widget process.
-class HomeWidgetService {
+class HomeWidgetService with WidgetsBindingObserver {
   HomeWidgetService._();
 
   static final HomeWidgetService instance = HomeWidgetService._();
@@ -24,6 +25,7 @@ class HomeWidgetService {
   static const _manilaOffset = Duration(hours: 8);
 
   bool _initialized = false;
+  bool _isAppInForeground = true;
   Timer? _syncDebounce;
   StreamSubscription<User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
@@ -34,6 +36,10 @@ class HomeWidgetService {
   void init() {
     if (_initialized || kIsWeb) return;
     _initialized = true;
+    WidgetsBinding.instance.addObserver(this);
+    _isAppInForeground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
 
     SensorService.instance.addListener(_scheduleSync);
     SettingsService.instance.addListener(_scheduleSync);
@@ -43,6 +49,14 @@ class HomeWidgetService {
       _scheduleSync();
     });
     _scheduleSync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppInForeground = state == AppLifecycleState.resumed;
+    if (_isAppInForeground) {
+      _scheduleSync();
+    }
   }
 
   void _scheduleSync() {
@@ -65,6 +79,7 @@ class HomeWidgetService {
         'widget_online': false,
         'widget_classification_status': 'SIGN IN REQUIRED',
         'widget_classification_insight': 'Open CrayCare to sign in',
+        'widget_classification_recommendation': '',
         'widget_temperature_value': '--',
         'widget_temperature_status': 'UNKNOWN',
         'widget_ph_value': '--',
@@ -89,15 +104,18 @@ class HomeWidgetService {
     _ensureClassificationListener(tankId);
 
     snapshot['widget_signed_in'] = true;
-    snapshot['widget_online'] = sensors.isEspOnline;
+    if (sensors.initialDataLoaded) {
+      if (sensors.isEspOnline || _isAppInForeground) {
+        snapshot['widget_online'] = sensors.isEspOnline;
+      }
+      _writeSensor(snapshot, 'temp', 'temperature', '°C', decimals: 1);
+      _writeSensor(snapshot, 'ph', 'ph', '', decimals: 2);
+      _writeSensor(snapshot, 'do', 'dissolved_oxygen', 'mg/L', decimals: 1);
+      _writeSensor(snapshot, 'turb', 'turbidity', 'NTU', decimals: 1);
+      _writeSensor(snapshot, 'waterlevel', 'water_level', 'cm', decimals: 1);
+      _writeSensor(snapshot, 'feedlevel', 'feedlevel', '%', decimals: 0);
+    }
     _writeClassification(snapshot);
-
-    _writeSensor(snapshot, 'temp', 'temperature', '°C', decimals: 1);
-    _writeSensor(snapshot, 'ph', 'ph', '', decimals: 2);
-    _writeSensor(snapshot, 'do', 'dissolved_oxygen', 'mg/L', decimals: 1);
-    _writeSensor(snapshot, 'turb', 'turbidity', 'NTU', decimals: 1);
-    _writeSensor(snapshot, 'waterlevel', 'water_level', 'cm', decimals: 1);
-    _writeSensor(snapshot, 'feedlevel', 'feedlevel', '%', decimals: 0);
 
     final now = manilaWallClock();
     final feeder = FeederService.instance;
@@ -162,6 +180,12 @@ class HomeWidgetService {
     final classLabel = data?['class_label']?.toString().trim();
     final insight = data?['insight']
         ?.toString()
+        .replaceAll('**', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final recommendation = data?['recommendation']
+        ?.toString()
+        .replaceAll('**', '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
@@ -173,16 +197,19 @@ class HomeWidgetService {
           (insight != null && insight.isNotEmpty)
           ? insight
           : 'Water quality classified as $classLabel.';
+      snapshot['widget_classification_recommendation'] = recommendation ?? '';
     } else if (predictionStatus == 'insufficient_data') {
       snapshot['widget_classification_status'] = 'INCOMPLETE';
       snapshot['widget_classification_insight'] =
           (insight != null && insight.isNotEmpty)
           ? insight
           : 'Waiting for complete sensor readings.';
+      snapshot['widget_classification_recommendation'] = '';
     } else {
       snapshot['widget_classification_status'] = 'AWAITING DATA';
       snapshot['widget_classification_insight'] =
           'Waiting for next ML classification.';
+      snapshot['widget_classification_recommendation'] = '';
     }
   }
 
@@ -263,5 +290,6 @@ class HomeWidgetService {
     FeederService.instance.removeListener(_scheduleSync);
     ConnectivityService.instance.removeListener(_scheduleSync);
     _initialized = false;
+    WidgetsBinding.instance.removeObserver(this);
   }
 }
