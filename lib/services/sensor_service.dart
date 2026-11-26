@@ -113,6 +113,7 @@ class SensorService extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
   StreamSubscription<User?>? _authSubscription;
   String? _tankId;
+  String? get currentTankId => _tankId;
   int _listenerGeneration = 0;
 
   final Map<String, List<double>> _history = {};

@@ -32,13 +32,18 @@ function previousDateKey(dateKey, daysBefore) {
 // Fetch recent readings for trend analysis
 // ──────────────────────────────────────────────
 
-async function fetchRecentReadings(tankId, dateKey, currentEntryId, currentRecordedAt) {
+async function fetchReadingsWindow(
+  tankId,
+  dateKey,
+  currentEntryId,
+  currentRecordedAt,
+  maxPreviousReadings,
+  maxDaysToSearch = 4
+) {
   const cutoffMillis = timestampMillis(currentRecordedAt);
   if (cutoffMillis === null) return [];
 
   const readings = [];
-  const maxPreviousReadings = 9;
-  const maxDaysToSearch = 4;
   const tankRef = db.collection("tanks").doc(tankId);
 
   // Search backward by the date folders used by sensor_readings_history. The
@@ -77,6 +82,15 @@ async function fetchRecentReadings(tankId, dateKey, currentEntryId, currentRecor
     .slice(-maxPreviousReadings);
 }
 
+async function fetchRecentReadings(tankId, dateKey, currentEntryId, currentRecordedAt) {
+  return fetchReadingsWindow(tankId, dateKey, currentEntryId, currentRecordedAt, 9, 4);
+}
+
+async function fetchExtendedReadings(tankId, dateKey, currentEntryId, currentRecordedAt) {
+  // ~6 hours at 10-minute sampling intervals (35 previous + 1 current = 36 readings)
+  return fetchReadingsWindow(tankId, dateKey, currentEntryId, currentRecordedAt, 35, 4);
+}
+
 async function saveResult(tankId, dateKey, entryId, result, existingLatestSnapshot) {
   const tankRef = db.collection("tanks").doc(tankId);
   const latestRef = tankRef.collection("water_quality_classification").doc("latest");
@@ -106,4 +120,4 @@ async function saveResult(tankId, dateKey, entryId, result, existingLatestSnapsh
   });
 }
 
-module.exports = { fetchRecentReadings, saveResult };
+module.exports = { fetchRecentReadings, fetchExtendedReadings, saveResult };

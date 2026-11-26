@@ -96,6 +96,10 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             setSensor(views, prefs, "turbidity", R.id.widget_turb_value, R.id.widget_turb_status)
             setSensor(views, prefs, "water_level", R.id.widget_water_value, R.id.widget_water_status)
 
+            val feederStatus = prefs.getString("widget_feeder_status", "OFFLINE") ?: "OFFLINE"
+            views.setTextViewText(R.id.widget_feeder_status, feederStatus)
+            views.setTextColor(R.id.widget_feeder_status, statusColor(feederStatus))
+
             views.setTextViewText(
                 R.id.widget_next_feed,
                 prefs.getString("widget_next_feed", "No schedule"),
@@ -146,9 +150,9 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
         }
 
         private fun statusColor(status: String): Int = when (status.uppercase()) {
-            "NORMAL", "GOOD" -> Color.parseColor("#168B82")
-            "UNUSUAL", "WARNING", "MODERATE" -> Color.parseColor("#D48806")
-            "CRITICAL", "POOR" -> Color.parseColor("#DC3545")
+            "NORMAL", "GOOD", "OPTIMAL", "READY" -> Color.parseColor("#168B82")
+            "UNUSUAL", "WARNING", "MODERATE", "POOR", "DISPENSING", "INCOMPLETE" -> Color.parseColor("#D48806")
+            "CRITICAL" -> Color.parseColor("#DC3545")
             else -> Color.parseColor("#7A8A94")
         }
 

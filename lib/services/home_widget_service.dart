@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +26,10 @@ class HomeWidgetService {
   bool _initialized = false;
   Timer? _syncDebounce;
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _classificationSub;
+  String? _classificationTankId;
+  Map<String, dynamic>? _classificationData;
 
   void init() {
     if (_initialized || kIsWeb) return;
@@ -54,6 +59,7 @@ class HomeWidgetService {
     final snapshot = <String, Object>{};
 
     if (user == null) {
+      _clearClassificationListener();
       snapshot.addAll({
         'widget_signed_in': false,
         'widget_online': false,
@@ -79,11 +85,12 @@ class HomeWidgetService {
       return;
     }
 
+    final tankId = sensors.currentTankId ?? user.uid;
+    _ensureClassificationListener(tankId);
+
     snapshot['widget_signed_in'] = true;
     snapshot['widget_online'] = sensors.isEspOnline;
-    snapshot['widget_classification_status'] = 'MODEL PENDING';
-    snapshot['widget_classification_insight'] =
-        'Classification model is not connected';
+    _writeClassification(snapshot);
 
     _writeSensor(snapshot, 'temp', 'temperature', '°C', decimals: 1);
     _writeSensor(snapshot, 'ph', 'ph', '', decimals: 2);
@@ -115,6 +122,67 @@ class HomeWidgetService {
         ? ''
         : (next.schedule.grams == null ? 'DEFAULT' : 'CUSTOM');
     await _requestNativeUpdate(snapshot);
+  }
+
+  void _ensureClassificationListener(String tankId) {
+    if (_classificationTankId == tankId && _classificationSub != null) return;
+    _classificationSub?.cancel();
+    _classificationTankId = tankId;
+    _classificationData = null;
+
+    _classificationSub = FirebaseFirestore.instance
+        .collection('tanks')
+        .doc(tankId)
+        .collection('water_quality_classification')
+        .doc('latest')
+        .snapshots()
+        .listen(
+          (snap) {
+            if (_classificationTankId != tankId) return;
+            _classificationData = snap.data();
+            _scheduleSync();
+          },
+          onError: (Object _) {
+            // Keep last known classification or awaiting fallback on transient read error.
+          },
+        );
+  }
+
+  void _clearClassificationListener() {
+    _classificationSub?.cancel();
+    _classificationSub = null;
+    _classificationTankId = null;
+    _classificationData = null;
+  }
+
+  void _writeClassification(Map<String, Object> snapshot) {
+    final data = _classificationData;
+    final predictionStatus = data?['prediction_status']?.toString();
+    final classLabel = data?['class_label']?.toString().trim();
+    final insight = data?['insight']
+        ?.toString()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (predictionStatus == 'classified' &&
+        classLabel != null &&
+        classLabel.isNotEmpty) {
+      snapshot['widget_classification_status'] = classLabel.toUpperCase();
+      snapshot['widget_classification_insight'] =
+          (insight != null && insight.isNotEmpty)
+          ? insight
+          : 'Water quality classified as $classLabel.';
+    } else if (predictionStatus == 'insufficient_data') {
+      snapshot['widget_classification_status'] = 'INCOMPLETE';
+      snapshot['widget_classification_insight'] =
+          (insight != null && insight.isNotEmpty)
+          ? insight
+          : 'Waiting for complete sensor readings.';
+    } else {
+      snapshot['widget_classification_status'] = 'AWAITING DATA';
+      snapshot['widget_classification_insight'] =
+          'Waiting for next ML classification.';
+    }
   }
 
   void _writeSensor(
@@ -188,6 +256,7 @@ class HomeWidgetService {
   void dispose() {
     _syncDebounce?.cancel();
     _authSub?.cancel();
+    _clearClassificationListener();
     SensorService.instance.removeListener(_scheduleSync);
     SettingsService.instance.removeListener(_scheduleSync);
     FeederService.instance.removeListener(_scheduleSync);

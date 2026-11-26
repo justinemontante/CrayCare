@@ -16,7 +16,7 @@ const {
 } = require("./trend_analyzer");
 const { insightFor } = require("./insights");
 const { recommendationFor } = require("./recommendations");
-const { fetchRecentReadings, saveResult } = require("./firestore_records");
+const { fetchRecentReadings, fetchExtendedReadings, saveResult } = require("./firestore_records");
 const { notificationEventId, deliverNotificationOnce } = require("../notifications/notification_delivery");
 
 const db = admin.firestore();
@@ -60,6 +60,17 @@ async function notifyMlClassificationChange(tankId, entryId, prevResult, result)
     newLabel === "Optimal";
 
   if (!isAlert && !isRecovery) return;
+
+  // Alert Hysteresis / Notification Fatigue Mitigation:
+  // Critical alerts always fire immediately; non-Critical transitions (Poor / Optimal recovery)
+  // respect a 30-minute cooldown to avoid boundary-oscillation spam.
+  if (newLabel !== "Critical" && prevResult && prevResult.source_recorded_at) {
+    const prevMs = timestampMillis(prevResult.source_recorded_at);
+    const currMs = timestampMillis(result.source_recorded_at);
+    if (prevMs !== null && currMs !== null && Math.abs(currMs - prevMs) < 30 * 60 * 1000) {
+      return;
+    }
+  }
 
   const tankSnap = await db.collection("tanks").doc(tankId).get();
   const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
@@ -121,10 +132,61 @@ async function notifyMlClassificationChange(tankId, entryId, prevResult, result)
 }
 
 // ──────────────────────────────────────────────
+// Long-term (6-hour) trend summary
+// ──────────────────────────────────────────────
+
+const LONG_TERM_MIN_CHANGE = {
+  temperature: 0.5,
+  ph_level: 0.2,
+  dissolved_oxygen: 0.5,
+  turbidity: 3.0,
+};
+
+function buildLongTermTrend(readings) {
+  if (!Array.isArray(readings) || readings.length < 6) return null;
+
+  const result = {};
+  let hasAny = false;
+
+  for (const sensor of FEATURE_NAMES) {
+    const valid = readings.filter(
+      (r) => r && typeof r[sensor] === "number" && Number.isFinite(r[sensor])
+    );
+    if (valid.length < 6) continue;
+
+    const first = valid[0][sensor];
+    const last = valid[valid.length - 1][sensor];
+    const change = Number((last - first).toFixed(3));
+    const minChange = LONG_TERM_MIN_CHANGE[sensor] ?? 0.5;
+    const direction =
+      change <= -minChange ? "falling" : change >= minChange ? "rising" : "stable";
+
+    const firstMs = timestampMillis(valid[0].recorded_at);
+    const lastMs = timestampMillis(valid[valid.length - 1].recorded_at);
+    const windowMinutes =
+      firstMs !== null && lastMs !== null && lastMs >= firstMs
+        ? Math.round((lastMs - firstMs) / 60000)
+        : null;
+
+    result[sensor] = {
+      direction,
+      change,
+      firstValue: first,
+      latestValue: last,
+      sampleCount: valid.length,
+      windowMinutes,
+    };
+    hasAny = true;
+  }
+
+  return hasAny ? result : null;
+}
+
+// ──────────────────────────────────────────────
 // Build prediction (with trend awareness)
 // ──────────────────────────────────────────────
 
-function buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend = null, waterLevelThresholds = null) {
+function buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend = null, waterLevelThresholds = null, longTermTrend = null) {
   const timestamp = data.recorded_at || null;
 
   const { perSensorClasses } = range;
@@ -163,7 +225,9 @@ function buildPrediction(data, values, range, prediction, sourcePath, sensorTren
       sensorTrends,
       typeof data.water_level === "number" ? data.water_level : null,
       waterLevelTrend,
-      waterLevelThresholds
+      waterLevelThresholds,
+      timestamp,
+      longTermTrend
     ),
     recommendation: recommendationFor(
       prediction,
@@ -173,7 +237,9 @@ function buildPrediction(data, values, range, prediction, sourcePath, sensorTren
       sensorTrends,
       typeof data.water_level === "number" ? data.water_level : null,
       waterLevelTrend,
-      waterLevelThresholds
+      waterLevelThresholds,
+      timestamp,
+      longTermTrend
     ),
     sensor_trends: trendsToStore,
     source_recorded_at: timestamp,
@@ -215,8 +281,9 @@ exports.classifyWaterQuality = functions
     const tankRef = db.collection("tanks").doc(tankId);
     const latestRef = tankRef.collection("water_quality_classification").doc("latest");
 
-    const [recentReadings, latestSnapshot, waterLevelDoc] = await Promise.all([
+    const [recentReadings, extendedReadings, latestSnapshot, waterLevelDoc] = await Promise.all([
       fetchRecentReadings(tankId, dateKey, entryId, data.recorded_at),
+      fetchExtendedReadings(tankId, dateKey, entryId, data.recorded_at),
       latestRef.get(),
       tankRef.collection("sensors").doc("waterlevel").get(),
     ]);
@@ -304,8 +371,12 @@ exports.classifyWaterQuality = functions
       };
     }
 
+    // 4c. Extended 6-hour long-term trend layer
+    const allExtendedReadings = [...extendedReadings, data];
+    const longTermTrend = buildLongTermTrend(allExtendedReadings);
+
     // 5. Build full prediction with trends
-    const result = buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend, waterLevelThresholds);
+    const result = buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend, waterLevelThresholds, longTermTrend);
 
     // 6. Save to Firestore
     await saveResult(tankId, dateKey, entryId, result, latestSnapshot);

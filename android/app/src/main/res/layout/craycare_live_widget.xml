@@ -91,8 +91,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:ellipsize="end"
-                android:maxLines="1"
-                android:text="Classification model is not connected"
+                android:lineSpacingExtra="1dp"
+                android:maxLines="2"
+                android:text="Waiting for next ML classification."
                 android:textColor="#536A73"
                 android:textSize="9sp" />
         </LinearLayout>
@@ -373,13 +374,35 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="NEXT FEED"
-                android:textColor="#71828A"
-                android:textSize="7sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NEXT FEED"
+                    android:textColor="#71828A"
+                    android:textSize="7sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_feeder_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:background="@drawable/craycare_widget_status_pill_background"
+                    android:paddingLeft="4dp"
+                    android:paddingTop="1dp"
+                    android:paddingRight="4dp"
+                    android:paddingBottom="1dp"
+                    android:text="OFFLINE"
+                    android:textColor="#7A8A94"
+                    android:textSize="6sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/widget_next_feed"

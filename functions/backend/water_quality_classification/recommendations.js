@@ -1,7 +1,10 @@
 "use strict";
 
 const { SENSOR_THRESHOLDS } = require("./thresholds");
-const { insightFor, resolveWaterLevelThresholds } = require("./insights");
+const { insightFor, resolveWaterLevelThresholds, getManilaHour } = require("./insights");
+
+const SAFE_REFILL_ACTION =
+  "Slowly top up with clean, pre-aerated aged water so crayfish can adapt gradually and avoid water shock, and avoid refilling directly from a tap or hose as it may contain chlorine; test source water pH first.";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Comprehensive 9-Tier Contextual Recommendation Engine for Cherax quadricarinatus
@@ -30,7 +33,9 @@ function recommendationFor(
   sensorTrends,
   waterLevel = null,
   waterLevelTrend = null,
-  waterLevelThresholds = null
+  waterLevelThresholds = null,
+  recordedAt = null,
+  longTermTrend = null
 ) {
   const [temperature, ph, doValue, turbidity] = values;
   const actions = [];
@@ -281,15 +286,19 @@ function recommendationFor(
       reduceFeeding = true;
     }
   } else if (tempCoolPoor) {
+    const manilaHour = getManilaHour(recordedAt);
+    const isDawn = manilaHour !== null && manilaHour >= 0 && manilaHour < 7;
     if (!suspendFeeding && !reduceFeeding) {
       actions.push(
-        "Reduce feeding rations slightly because crayfish digest food more slowly in cool water and uneaten pellets can foul the tank."
+        isDawn
+          ? "Water temperature is below optimal due to expected nocturnal cooling. Delay early morning feeding until water warms above 26.0°C after sunrise."
+          : "Water temperature is below the optimal range. Reduce feeding rations slightly because crayfish digest food more slowly in cool water and uneaten pellets can foul the tank."
       );
       reduceFeeding = true;
     }
     if (isShallow && !waterRefillHandled) {
       actions.push(
-        "Water depth is low, and shallow water loses heat faster. Slowly add clean, pre-aerated aged water to restore depth and stabilize temperature after checking source water pH."
+        `Water depth is low, and shallow water loses heat faster. ${SAFE_REFILL_ACTION}`
       );
       waterRefillHandled = true;
     } else if (!isShallow) {
@@ -304,7 +313,7 @@ function recommendationFor(
     } else if (tempTrend.nearBoundary === "lower" && tempTrend.direction === "falling") {
       if (isShallow && !waterRefillHandled) {
         actions.push(
-          "Water depth is low while temperature is falling. Slowly add clean, pre-aerated aged water to restore depth and prevent rapid cooling after checking source water pH."
+          `Water depth is low while temperature is falling. ${SAFE_REFILL_ACTION}`
         );
         waterRefillHandled = true;
       } else if (!isShallow) {
@@ -316,12 +325,12 @@ function recommendationFor(
   // ── Tier 5: Ultrasonic Water Level Depth & Refill Equilibration ──
   if (isCriticallyShallow && !waterRefillHandled) {
     actions.push(
-      `Water depth is critically shallow at ${waterLevel.toFixed(1)} cm, which can expose hiding shelters and cause rapid temperature swings. Slowly top up with clean, pre-aerated aged water after checking source water pH.`
+      `Water depth is critically shallow at ${waterLevel.toFixed(1)} cm, which can expose hiding shelters and cause rapid temperature swings. ${SAFE_REFILL_ACTION}`
     );
     waterRefillHandled = true;
   } else if (isLowShallow && !waterRefillHandled) {
     actions.push(
-      `Water depth is low at ${waterLevel.toFixed(1)} cm. Slowly top up with clean, pre-aerated aged water to restore proper depth after checking source water pH.`
+      `Water depth is low at ${waterLevel.toFixed(1)} cm. ${SAFE_REFILL_ACTION}`
     );
     waterRefillHandled = true;
   } else if (wlFalling && !waterRefillHandled && wlDropCm !== null) {
@@ -392,6 +401,40 @@ function recommendationFor(
         actions.push(
           "Water quality has stabilized back within optimal levels. Maintain current aeration and filtration settings, and continue routine feeding and monitoring."
         );
+      } else if (prediction === 2 && longTermTrend) {
+        const earlyWarnings = [];
+        if (
+          longTermTrend.temperature &&
+          longTermTrend.temperature.direction === "falling" &&
+          Math.abs(longTermTrend.temperature.change) > 1.0
+        ) {
+          earlyWarnings.push(
+            "Temperature has been declining steadily over the past 6 hours. If the trend continues, monitor feeding response closely and prepare to reduce rations if water falls below 26.0°C."
+          );
+        }
+        if (
+          longTermTrend.dissolved_oxygen &&
+          longTermTrend.dissolved_oxygen.direction === "falling" &&
+          Math.abs(longTermTrend.dissolved_oxygen.change) > 1.0
+        ) {
+          earlyWarnings.push(
+            "Dissolved Oxygen has been declining over the past 6 hours. Inspect aerator airflow and airstones early to keep oxygen comfortably above 5.0 mg/L."
+          );
+        }
+        if (
+          longTermTrend.turbidity &&
+          longTermTrend.turbidity.direction === "rising" &&
+          longTermTrend.turbidity.change > 10.0
+        ) {
+          earlyWarnings.push(
+            "Turbidity has been rising over the past 6 hours. Check filter pads and inspect the trapond bottom for uneaten feed or waste buildup."
+          );
+        }
+        if (earlyWarnings.length > 0) {
+          actions.push(earlyWarnings.join(" "));
+        } else {
+          actions.push("Continue routine monitoring, regular feeding, and normal trapond care.");
+        }
       } else {
         actions.push("Continue routine monitoring, regular feeding, and normal trapond care.");
       }

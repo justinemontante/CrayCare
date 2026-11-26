@@ -14,6 +14,25 @@ const FRIENDLY = {
 const DEFAULT_CRITICAL_SHALLOW_DEPTH_CM = 3.0;
 const DEFAULT_LOW_SHALLOW_DEPTH_CM = 5.0;
 
+function getManilaHour(recordedAt) {
+  if (!recordedAt) return null;
+  let ms = null;
+  if (typeof recordedAt.toMillis === "function") {
+    ms = recordedAt.toMillis();
+  } else if (recordedAt instanceof Date) {
+    ms = recordedAt.getTime();
+  } else if (typeof recordedAt === "number" && Number.isFinite(recordedAt)) {
+    ms = Math.abs(recordedAt) < 100000000000 ? Math.round(recordedAt * 1000) : recordedAt;
+  } else if (typeof recordedAt === "string") {
+    const numeric = Number(recordedAt);
+    ms = Number.isFinite(numeric)
+      ? (Math.abs(numeric) < 100000000000 ? Math.round(numeric * 1000) : numeric)
+      : Date.parse(recordedAt);
+  }
+  if (ms === null || !Number.isFinite(ms)) return null;
+  return new Date(ms + 8 * 3600000).getUTCHours();
+}
+
 function resolveWaterLevelThresholds(waterLevelThresholds) {
   const low =
     waterLevelThresholds &&
@@ -420,7 +439,9 @@ function insightFor(
   sensorTrends,
   waterLevel = null,
   waterLevelTrend = null,
-  waterLevelThresholds = null
+  waterLevelThresholds = null,
+  recordedAt = null,
+  longTermTrend = null
 ) {
   const [temperature, ph, doValue, turbidity] = values;
   const mlLabel = CLASS_NAMES[prediction];
@@ -473,6 +494,7 @@ function insightFor(
   }
 
   // 3. Temperature (index 0)
+  let tempTimeNote = null;
   if (perSensorClasses[0] === -1) {
     hardwareFaults.push(`Temperature (${temperature.toFixed(1)}°C)`);
   } else if (perSensorClasses[0] === 0) {
@@ -496,6 +518,16 @@ function insightFor(
         ? `Temperature is slightly warm at ${temperature.toFixed(1)}°C and should be monitored to avoid thermal stress`
         : `Temperature is slightly cool at ${temperature.toFixed(1)}°C and should be monitored to prevent slowed metabolism`
     );
+    if (!isWarm) {
+      const manilaHour = getManilaHour(recordedAt);
+      if (manilaHour !== null && manilaHour >= 0 && manilaHour < 7) {
+        tempTimeNote =
+          "This is consistent with expected nocturnal cooling during early morning hours (Boyd & Tucker, 1998). Temperature typically recovers after sunrise.";
+      } else if (manilaHour !== null && manilaHour >= 7 && manilaHour < 19) {
+        tempTimeNote =
+          "Water temperature is below the optimal range during daytime, which may indicate inadequate heating or unusual weather conditions.";
+      }
+    }
   } else {
     optimalBenefits.push(
       `optimal Temperature (${temperature.toFixed(1)}°C) maintains steady metabolic activity`
@@ -633,6 +665,10 @@ function insightFor(
     }
   }
 
+  if (tempTimeNote) {
+    sentences.push(tempTimeNote);
+  }
+
   const waterLevelNote = getWaterLevelInsightNote(
     values,
     perSensorClasses,
@@ -642,6 +678,39 @@ function insightFor(
   );
   if (waterLevelNote) {
     sentences.push(waterLevelNote);
+  }
+
+  if (prediction === 2 && longTermTrend) {
+    if (
+      longTermTrend.temperature &&
+      longTermTrend.temperature.direction === "falling" &&
+      Math.abs(longTermTrend.temperature.change) > 1.0
+    ) {
+      const dropC = Math.abs(longTermTrend.temperature.change).toFixed(1);
+      sentences.push(
+        `Note: Water temperature has declined by ${dropC}°C over the past 6 hours. While currently within optimal range, sustained cooling may push it below the 26.0°C optimal threshold. Monitor closely (Boyd & Tucker, 1998).`
+      );
+    }
+    if (
+      longTermTrend.dissolved_oxygen &&
+      longTermTrend.dissolved_oxygen.direction === "falling" &&
+      Math.abs(longTermTrend.dissolved_oxygen.change) > 1.0
+    ) {
+      const dropDo = Math.abs(longTermTrend.dissolved_oxygen.change).toFixed(2);
+      sentences.push(
+        `Note: Dissolved Oxygen has declined by ${dropDo} mg/L over the past 6 hours. While still within optimal range, sustained oxygen loss can lead to hypoxia stress if aeration is insufficient (Boyd & Tucker, 1998).`
+      );
+    }
+    if (
+      longTermTrend.turbidity &&
+      longTermTrend.turbidity.direction === "rising" &&
+      longTermTrend.turbidity.change > 10.0
+    ) {
+      const riseTurb = longTermTrend.turbidity.change.toFixed(1);
+      sentences.push(
+        `Note: Turbidity has increased by ${riseTurb} NTU over the past 6 hours. While still within optimal limits, rising suspended solids may indicate accumulating waste or uneaten feed.`
+      );
+    }
   }
 
   const isGoodResult = prediction === 2 && rangeClass === 2;
@@ -662,4 +731,5 @@ module.exports = {
   insightFor,
   buildSimpleTrendNote,
   resolveWaterLevelThresholds,
+  getManilaHour,
 };
