@@ -46,6 +46,7 @@ class ControlsScreenState extends State<ControlsScreen> {
   /// false, so the overlay can tell the two apart without a status field.
   bool _manualFeedInitiated = false;
   String? _activeCommandId;
+  double? _activeFeedGrams;
   String _feedNotice =
       'No confirmation received. Check feeding history before retrying.';
   bool _wasRunning = false;
@@ -224,6 +225,13 @@ class ControlsScreenState extends State<ControlsScreen> {
     }
   }
 
+  Duration _dispenseTimeoutForGrams(double? grams) {
+    if (grams == null || !grams.isFinite || grams <= 0) {
+      return const Duration(seconds: 60);
+    }
+    return Duration(milliseconds: ((grams * 2.5 + 30.0) * 1000).round());
+  }
+
   void _onFeederUpdate() {
     _checkDateReset();
     final svc = FeederService.instance;
@@ -275,7 +283,7 @@ class ControlsScreenState extends State<ControlsScreen> {
         _dispenseCountAtStart = svc.dispenseCount;
         _feedState = _FeedState.dispensing;
         _dispenseTimer?.cancel();
-        _dispenseTimer = Timer(const Duration(seconds: 60), () {
+        _dispenseTimer = Timer(_dispenseTimeoutForGrams(_activeFeedGrams), () {
           if (!mounted) return;
           _feedNotice =
               'No confirmation received. Check feeding history before retrying.';
@@ -285,6 +293,7 @@ class ControlsScreenState extends State<ControlsScreen> {
             _updateState(() {
               _feedState = _FeedState.hidden;
               _manualFeedInitiated = false;
+              _activeFeedGrams = null;
             });
           });
           _notifyIfActive();
@@ -572,11 +581,12 @@ class ControlsScreenState extends State<ControlsScreen> {
       return;
     }
     _manualFeedInitiated = true;
+    _activeFeedGrams = grams;
     _feedTimer?.cancel();
     setState(() => _feedState = _FeedState.waiting);
     _dispenseCountAtStart = svc.dispenseCount;
     _dispenseTimer?.cancel();
-    _dispenseTimer = Timer(const Duration(seconds: 60), () {
+    _dispenseTimer = Timer(_dispenseTimeoutForGrams(grams), () {
       if (!mounted) return;
       _feedNotice =
           'No confirmation received. Check feeding history before retrying.';
@@ -588,6 +598,7 @@ class ControlsScreenState extends State<ControlsScreen> {
             _feedState = _FeedState.hidden;
             _manualFeedInitiated = false;
             _activeCommandId = null;
+            _activeFeedGrams = null;
           });
         }
       });
