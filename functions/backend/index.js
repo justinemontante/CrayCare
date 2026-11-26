@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 
 const firestoreDb = admin.firestore();
-const {SENSOR_MAP, sensorStateChanges, thresholdStateChanges} = require("./notifications/sensor_alerts");
+const {SENSOR_MAP, sensorValue, stateForSensor, sensorStateChanges, thresholdStateChanges} = require("./notifications/sensor_alerts");
 const {notificationEventId, deliverNotificationOnce} = require("./notifications/notification_delivery");
 const {feedingReminderOccurrence, feedingReminderBody} = require("./feeding/feeding_reminder");
 
@@ -29,6 +29,44 @@ const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const PUSH_NOTIFICATIONS_ENABLED = true;
 // Keep connection alerts consistent with the app's sensor freshness window.
 const SENSOR_STALE_MS = 60 * 1000;
+
+// Cooldown per alert tier — prevents re-notification while a sensor stays in
+// the same degraded state. Critical always fires immediately (0 ms cooldown).
+const SENSOR_COOLDOWN_MS = {
+  warning: 30 * 60 * 1000,   // 30 min — same as WQC classification cooldown
+  resolved: 5  * 60 * 1000,  // 5 min  — resolved alerts are low-urgency
+  critical: 0,                // Always immediate
+};
+
+// ---- Per-sensor alert state tracker ----------------------------------------
+// Stored at users/{uid}/notif_markers/sensor_alert_states_{tankId}
+// Shape: { [svcKey]: { state, dir, alertedAt } }
+
+async function getSensorAlertState(uid, tankId) {
+  try {
+    const snap = await firestoreDb.collection("users").doc(uid)
+      .collection("notif_markers")
+      .doc(`sensor_alert_states_${tankId}`)
+      .get();
+    return snap.exists ? (snap.data() || {}) : {};
+  } catch (_) { return {}; }
+}
+
+async function updateSensorAlertState(uid, tankId, updates) {
+  if (!Object.keys(updates).length) return;
+  try {
+    await firestoreDb.collection("users").doc(uid)
+      .collection("notif_markers")
+      .doc(`sensor_alert_states_${tankId}`)
+      .set(
+        { ...updates, updated_at: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+  } catch (e) {
+    functions.logger.error("updateSensorAlertState error:", e.message);
+  }
+}
+// ---------------------------------------------------------------------------
 
 function parseTimestampMillis(value) {
   if (value && typeof value.toMillis === "function") return value.toMillis();
@@ -464,9 +502,95 @@ exports.onSensorUpdate = functions.runWith({failurePolicy: true}).region("asia-s
         };
       });
 
-      const stateChanges = sensorStateChanges(beforeData, afterData, thresholds);
-      await notifySensorChanges(ownerUid, stateChanges,
-        notificationEventId("sensor", tankId, context.eventId));
+      // --- Persistent state tracking -----------------------------------------
+      // Compare against the LAST ALERTED state stored in Firestore, not just
+      // the Firestore before/after snapshot. This prevents:
+      //   • Cold-start re-alerts (function instance restart loses in-memory state)
+      //   • Threshold-bouncing spam (sensor oscillates around the alert boundary)
+      // -------------------------------------------------------------------------
+      const storedStates = await getSensorAlertState(ownerUid, tankId);
+      const now = Date.now();
+      const realChanges = [];
+      const stateUpdates = {};
+
+      for (const sensorName of Object.keys(SENSOR_MAP)) {
+        const svcKey = SENSOR_MAP[sensorName];
+        const value = sensorValue(sensorName, afterData);
+        if (value === null) continue;
+
+        const newState = stateForSensor(sensorName, value, thresholds[sensorName]);
+        const stored = storedStates[svcKey] || {};
+        const prevState = stored.state || "unknown";
+        const prevDir   = stored.dir   || null;
+        const lastAlertedAt = stored.alertedAt
+          ? (typeof stored.alertedAt.toMillis === "function"
+              ? stored.alertedAt.toMillis()
+              : Number(stored.alertedAt))
+          : 0;
+        const newDir = newState.dir || null;
+
+        // No change in state+direction → nothing to do
+        if (newState.state === prevState && newDir === prevDir) continue;
+
+        // Turbidity: only high-side alerts are actionable (low turbidity = clear water)
+        if (svcKey === "turb") {
+          const isHighAlert = ["critical", "warning"].includes(newState.state) && newDir === "high";
+          const isHighResolved = newState.state === "normal" &&
+            prevDir === "high" && ["critical", "warning"].includes(prevState);
+          if (!isHighAlert && !isHighResolved) {
+            // Update state silently — no push or inbox notification
+            stateUpdates[svcKey] = { state: newState.state, dir: newDir, alertedAt: stored.alertedAt || null };
+            continue;
+          }
+        }
+
+        // Cooldown check — skip re-alert for non-critical states that are still
+        // within their cooldown window. Critical escalations always bypass.
+        const isCriticalEscalation =
+          newState.state === "critical" ||
+          (newState.state === "warning" && prevState === "critical"); // downgrade still needs update
+        if (!isCriticalEscalation) {
+          const cooldownMs = newState.state === "normal"
+            ? SENSOR_COOLDOWN_MS.resolved
+            : SENSOR_COOLDOWN_MS.warning;
+          if (now - lastAlertedAt < cooldownMs) {
+            // Still in cooldown: update stored state so direction is tracked
+            // correctly, but carry over the original alertedAt timestamp.
+            stateUpdates[svcKey] = { state: newState.state, dir: newDir, alertedAt: stored.alertedAt || null };
+            continue;
+          }
+        }
+
+        // Build the alert payload
+        if (newState.state === "critical" || newState.state === "warning") {
+          realChanges.push({ svcKey, val: value, threshold: newState.threshold, dir: newDir, state: newState.state });
+        } else if (newState.state === "normal" && ["critical", "warning"].includes(prevState)) {
+          realChanges.push({ svcKey, val: value, state: "resolved" });
+        }
+
+        // Mark new state + timestamp for this sensor
+        stateUpdates[svcKey] = {
+          state: newState.state,
+          dir: newDir,
+          alertedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+      }
+
+      if (realChanges.length > 0) {
+        // Stable deduplication key: based on the TRANSITION itself + 5-min bucket.
+        // Retries within the same 5-min window produce the same key, so
+        // deliverNotificationOnce blocks duplicate push + inbox writes.
+        const transitionKey = realChanges
+          .map((c) => `${c.svcKey}:${c.state}:${c.dir || ""}`)
+          .sort()
+          .join("|");
+        const bucket = Math.floor(now / (5 * 60 * 1000));
+        const stableEventId = notificationEventId("sensor", tankId, `${transitionKey}:${bucket}`);
+        await notifySensorChanges(ownerUid, realChanges, stableEventId);
+      }
+
+      // Persist updated sensor states (even if no alert fired, so direction is tracked)
+      await updateSensorAlertState(ownerUid, tankId, stateUpdates);
     } catch (e) {
       functions.logger.error("onSensorUpdate error:", e.message);
       throw e;

@@ -143,4 +143,4 @@ function thresholdStateChanges(sensorName, reading, beforeRange, afterRange) {
     stateForSensor(sensorName, value, afterRange));
 }
 
-module.exports = {SENSOR_MAP, sensorValue, sensorStateChanges, thresholdStateChanges};
+module.exports = {SENSOR_MAP, sensorValue, stateForSensor, sensorStateChanges, thresholdStateChanges};
