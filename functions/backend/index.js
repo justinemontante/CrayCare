@@ -518,7 +518,7 @@ exports.onSensorUpdate = functions.runWith({failurePolicy: true}).region("asia-s
         const value = sensorValue(sensorName, afterData);
         if (value === null) continue;
 
-        const newState = stateForSensor(sensorName, value, thresholds[sensorName]);
+        const newState = stateForSensor(sensorName, value, thresholds[sensorName], prevState);
         const stored = storedStates[svcKey] || {};
         const prevState = stored.state || "unknown";
         const prevDir   = stored.dir   || null;
