@@ -907,7 +907,7 @@ class _ClassificationHistoryItemState
                 if (!_expanded && widget.insight.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    widget.insight,
+                    widget.insight.replaceAll('**', ''),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -971,7 +971,7 @@ class _DetailBlock extends StatelessWidget {
           const SizedBox(width: 7),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   title,
@@ -983,7 +983,10 @@ class _DetailBlock extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                _buildFormattedText(context),
+                SizedBox(
+                  width: double.infinity,
+                  child: _buildFormattedText(context),
+                ),
               ],
             ),
           ),
@@ -998,6 +1001,12 @@ class _DetailBlock extends StatelessWidget {
       fontSize: 10,
       height: 1.35,
     );
+    const trendHeaderStyle = TextStyle(
+      color: AppColors.darkText,
+      fontSize: 10,
+      fontWeight: FontWeight.w800,
+      height: 1.35,
+    );
 
     final match = RegExp(r'(?:\n+)?\bRecent [Tt]rend:\s*').firstMatch(text);
     if (match != null) {
@@ -1007,25 +1016,96 @@ class _DetailBlock extends StatelessWidget {
         TextSpan(
           style: defaultStyle,
           children: [
-            if (before.isNotEmpty) TextSpan(text: before),
+            if (before.isNotEmpty) ..._parseStyledText(before, defaultStyle),
             if (before.isNotEmpty) const TextSpan(text: '\n\n'),
             const TextSpan(
               text: 'Recent Trend: ',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: AppColors.darkText,
-              ),
+              style: trendHeaderStyle,
             ),
-            TextSpan(text: after),
+            ..._parseStyledText(after, defaultStyle),
           ],
         ),
+        textAlign: TextAlign.justify,
       );
     }
 
-    return Text(
-      text,
-      style: defaultStyle,
+    return Text.rich(
+      TextSpan(
+        style: defaultStyle,
+        children: _parseStyledText(text, defaultStyle),
+      ),
+      textAlign: TextAlign.justify,
     );
+  }
+
+  static List<InlineSpan> _parseStyledText(
+    String input,
+    TextStyle normal,
+  ) {
+    final spans = <InlineSpan>[];
+    // Matches **text** or standalone classification keywords
+    final pattern = RegExp(r'\*\*([^*]+)\*\*|\b(Optimal|Poor|Critical)\b');
+    int lastIndex = 0;
+
+    for (final match in pattern.allMatches(input)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: input.substring(lastIndex, match.start),
+          style: normal,
+        ));
+      }
+
+      final boldContent = match.group(1);
+      final keyword = match.group(2);
+      final matchedText = boldContent ?? keyword ?? '';
+
+      TextStyle highlightStyle;
+      final lower = matchedText.toLowerCase();
+      if (lower.contains('optimal') || lower.contains('good')) {
+        highlightStyle = const TextStyle(
+          color: Color(0xFF168A52), // Brand green
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
+          height: 1.35,
+        );
+      } else if (lower.contains('poor') || lower.contains('warning')) {
+        highlightStyle = const TextStyle(
+          color: Color(0xFFB7791F), // Brand amber
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
+          height: 1.35,
+        );
+      } else if (lower.contains('critical') || lower.contains('danger')) {
+        highlightStyle = const TextStyle(
+          color: Color(0xFFB42318), // Brand red
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
+          height: 1.35,
+        );
+      } else {
+        highlightStyle = const TextStyle(
+          color: AppColors.darkText,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          height: 1.35,
+        );
+      }
+
+      spans.add(TextSpan(text: matchedText, style: highlightStyle));
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < input.length) {
+      spans.add(TextSpan(
+        text: input.substring(lastIndex),
+        style: normal,
+      ));
+    }
+
+    return spans;
   }
 }
 

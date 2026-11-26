@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
 import '../../services/settings_service.dart';
 import '../../services/database_service.dart';
@@ -789,7 +790,13 @@ class _SensorThresholdSettingsState extends State<SensorThresholdSettings> {
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+            signed: false,
+          ),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+          ],
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
           decoration: InputDecoration(

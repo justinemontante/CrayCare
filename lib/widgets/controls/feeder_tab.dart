@@ -554,20 +554,92 @@ class FeederTab extends StatelessWidget {
               const SizedBox(height: 10),
               Container(height: 1, color: AppColors.faintBorder),
               const SizedBox(height: 10),
-              Text(
-                'AM ${progress.morningDispensedGrams.toInt()}/'
-                '${rec.perFeedingGrams.toInt()} g · PM '
-                '${progress.eveningDispensedGrams.toInt()}/'
-                '${rec.perFeedingGrams.toInt()} g',
-                style: TextStyle(
-                  fontSize: 8,
-                  color: AppColors.subtitleText,
-                  height: 1.3,
-                ),
+              Row(
+                children: [
+                  _buildRecommendationSlot(
+                    label: 'AM',
+                    dispensed: progress.morningDispensedGrams,
+                    recommended: progress.recommendedGrams,
+                    active: progress.slot == FeedingSlot.morning,
+                  ),
+                  const SizedBox(width: 14),
+                  _buildRecommendationSlot(
+                    label: 'PM',
+                    dispensed: progress.eveningDispensedGrams,
+                    recommended: progress.recommendedGrams,
+                    active: progress.slot == FeedingSlot.evening,
+                  ),
+                ],
               ),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildRecommendationSlot({
+    required String label,
+    required double dispensed,
+    required double recommended,
+    required bool active,
+  }) {
+    final remaining = (recommended - dispensed).clamp(0.0, recommended);
+    final complete = remaining < 1;
+    final value = recommended <= 0
+        ? 0.0
+        : (dispensed / recommended).clamp(0.0, 1.0).toDouble();
+
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                '${dispensed.round()}/${recommended.round()} g',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.darkText,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                complete ? 'Done' : '${remaining.round()} left',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: complete
+                      ? AppColors.success
+                      : AppColors.darkWith(0.45),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 4,
+              backgroundColor: AppColors.darkWith(0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                complete ? AppColors.success : AppColors.primary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

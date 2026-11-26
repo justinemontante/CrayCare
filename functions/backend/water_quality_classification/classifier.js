@@ -17,6 +17,7 @@ const {
 const { insightFor } = require("./insights");
 const { recommendationFor } = require("./recommendations");
 const { fetchRecentReadings, saveResult } = require("./firestore_records");
+const { notificationEventId, deliverNotificationOnce } = require("../notifications/notification_delivery");
 
 const db = admin.firestore();
 const MODEL_VERSION = forest.model_version;
@@ -42,11 +43,88 @@ function readFeatures(data) {
   return values;
 }
 
+async function notifyMlClassificationChange(tankId, entryId, prevResult, result) {
+  if (!result || result.prediction_status !== "classified") return;
+
+  const prevLabel =
+    prevResult && prevResult.prediction_status === "classified"
+      ? prevResult.class_label
+      : null;
+  const newLabel = result.class_label;
+
+  const isAlert =
+    prevLabel !== newLabel && (newLabel === "Poor" || newLabel === "Critical");
+  const isRecovery =
+    prevLabel !== newLabel &&
+    (prevLabel === "Poor" || prevLabel === "Critical") &&
+    newLabel === "Optimal";
+
+  if (!isAlert && !isRecovery) return;
+
+  const tankSnap = await db.collection("tanks").doc(tankId).get();
+  const ownerUid = tankSnap.exists ? (tankSnap.data() || {}).owner_uid : null;
+  if (!ownerUid) return;
+
+  const alertType =
+    newLabel === "Critical"
+      ? "critical"
+      : newLabel === "Poor"
+        ? "warning"
+        : "operational";
+
+  const title =
+    newLabel === "Critical"
+      ? "ML Water Quality: Critical"
+      : newLabel === "Poor"
+        ? "ML Water Quality: Poor"
+        : "ML Water Quality: Optimal";
+
+  const insightSummary = String(result.insight || "").replace(/\s+/g, " ").trim();
+  const recSummary = String(result.recommendation || "").replace(/\s+/g, " ").trim();
+  const body = recSummary ? `${insightSummary} Action: ${recSummary}` : insightSummary;
+  const pushBody = body.length > 220 ? `${body.slice(0, 217)}...` : body;
+
+  await deliverNotificationOnce({
+    db,
+    id: notificationEventId("wqc_ml", tankId, entryId),
+    uid: ownerUid,
+    type: alertType,
+    title,
+    body,
+    timestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+    send: async () => {
+      const userSnap = await db.collection("users").doc(ownerUid).get();
+      const tokens = userSnap.exists && Array.isArray((userSnap.data() || {}).fcm_tokens)
+        ? userSnap.data().fcm_tokens.filter(Boolean)
+        : [];
+      if (tokens.length === 0) return;
+
+      const channelId = alertType === "critical" ? "craycare_alerts_critical" : "craycare_alerts";
+      await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification: { title, body: pushBody },
+        android: {
+          priority: "high",
+          notification: { channelId, priority: "high" },
+        },
+        data: {
+          title,
+          body: pushBody,
+          alertType,
+          critical: String(alertType === "critical"),
+          warning: String(alertType === "warning"),
+          operational: String(alertType === "operational"),
+        },
+      });
+    },
+  });
+}
+
 // ──────────────────────────────────────────────
 // Build prediction (with trend awareness)
 // ──────────────────────────────────────────────
 
-function buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend = null) {
+function buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend = null, waterLevelThresholds = null) {
   const timestamp = data.recorded_at || null;
 
   const { perSensorClasses } = range;
@@ -84,9 +162,19 @@ function buildPrediction(data, values, range, prediction, sourcePath, sensorTren
       perSensorClasses,
       sensorTrends,
       typeof data.water_level === "number" ? data.water_level : null,
-      waterLevelTrend
+      waterLevelTrend,
+      waterLevelThresholds
     ),
-    recommendation: recommendationFor(prediction, rangeClass, values, perSensorClasses, sensorTrends, typeof data.water_level === "number" ? data.water_level : null, waterLevelTrend),
+    recommendation: recommendationFor(
+      prediction,
+      rangeClass,
+      values,
+      perSensorClasses,
+      sensorTrends,
+      typeof data.water_level === "number" ? data.water_level : null,
+      waterLevelTrend,
+      waterLevelThresholds
+    ),
     sensor_trends: trendsToStore,
     source_recorded_at: timestamp,
     source_reading_path: sourcePath,
@@ -127,10 +215,22 @@ exports.classifyWaterQuality = functions
     const tankRef = db.collection("tanks").doc(tankId);
     const latestRef = tankRef.collection("water_quality_classification").doc("latest");
 
-    const [recentReadings, latestSnapshot] = await Promise.all([
+    const [recentReadings, latestSnapshot, waterLevelDoc] = await Promise.all([
       fetchRecentReadings(tankId, dateKey, entryId, data.recorded_at),
       latestRef.get(),
+      tankRef.collection("sensors").doc("waterlevel").get(),
     ]);
+
+    let waterLevelThresholds = null;
+    if (waterLevelDoc.exists) {
+      const wlData = waterLevelDoc.data() || {};
+      const low = Number(wlData.low_value ?? wlData.min_value);
+      const critical = Number(wlData.critical_value);
+      waterLevelThresholds = {
+        low: Number.isFinite(low) && low > 0 ? low : 5.0,
+        critical: Number.isFinite(critical) && critical >= 0 ? critical : 3.0,
+      };
+    }
 
     // Graceful forward-fill for transient missing DO if other 3 sensors are valid and DO is fresh (<= 60 min)
     if (typeof data.dissolved_oxygen !== "number" || !Number.isFinite(data.dissolved_oxygen)) {
@@ -205,10 +305,21 @@ exports.classifyWaterQuality = functions
     }
 
     // 5. Build full prediction with trends
-    const result = buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend);
+    const result = buildPrediction(data, values, range, prediction, sourcePath, sensorTrends, prevResult, waterLevelTrend, waterLevelThresholds);
 
     // 6. Save to Firestore
     await saveResult(tankId, dateKey, entryId, result, latestSnapshot);
+
+    // 7. Notify farmer on ML classification state transitions (Poor/Critical/Recovery)
+    try {
+      await notifyMlClassificationChange(tankId, entryId, prevResult, result);
+    } catch (notifyErr) {
+      functions.logger.warn("ML classification notification failed", {
+        tankId,
+        entryId,
+        error: notifyErr && notifyErr.message ? notifyErr.message : String(notifyErr),
+      });
+    }
 
     functions.logger.info("Water-quality classification saved", {
       tankId,

@@ -208,6 +208,7 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
             'Crayfish Harvested',
             'Number of crayfish',
             _countCtrl,
+            integerOnly: true,
           ),
           _buildHarvestWarning(),
           const SizedBox(height: 12),
@@ -322,8 +323,9 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
   Widget _buildInputField(
     String label,
     String hint,
-    TextEditingController ctrl,
-  ) {
+    TextEditingController ctrl, {
+    bool integerOnly = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -338,9 +340,13 @@ class _CrayfishHarvestFormPanelState extends State<CrayfishHarvestFormPanel> {
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: integerOnly
+              ? TextInputType.number
+              : const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
+            integerOnly
+                ? FilteringTextInputFormatter.digitsOnly
+                : FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$')),
           ],
           style: const TextStyle(
             fontSize: 14,

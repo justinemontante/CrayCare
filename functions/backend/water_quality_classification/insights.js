@@ -10,9 +10,28 @@ const FRIENDLY = {
   turbidity: "Turbidity",
 };
 
-// Water level thresholds: Low (Warning) < 5.0 cm, Critical < 3.0 cm
-const CRITICAL_SHALLOW_DEPTH_CM = 3.0;
-const LOW_SHALLOW_DEPTH_CM = 5.0;
+// Default water level thresholds (used only if owner has not configured tank sensor thresholds)
+const DEFAULT_CRITICAL_SHALLOW_DEPTH_CM = 3.0;
+const DEFAULT_LOW_SHALLOW_DEPTH_CM = 5.0;
+
+function resolveWaterLevelThresholds(waterLevelThresholds) {
+  const low =
+    waterLevelThresholds &&
+    typeof waterLevelThresholds.low === "number" &&
+    Number.isFinite(waterLevelThresholds.low) &&
+    waterLevelThresholds.low > 0
+      ? waterLevelThresholds.low
+      : DEFAULT_LOW_SHALLOW_DEPTH_CM;
+  const critical =
+    waterLevelThresholds &&
+    typeof waterLevelThresholds.critical === "number" &&
+    Number.isFinite(waterLevelThresholds.critical) &&
+    waterLevelThresholds.critical >= 0 &&
+    waterLevelThresholds.critical < low
+      ? waterLevelThresholds.critical
+      : Math.min(DEFAULT_CRITICAL_SHALLOW_DEPTH_CM, Math.max(0, low - 2.0));
+  return { low, critical };
+}
 
 function joinNatural(items) {
   if (items.length <= 1) return items[0] || "";
@@ -199,13 +218,14 @@ function getCompoundBiologicalNotes(values, perSensorClasses) {
 }
 
 // Contextual hydrological note for ultrasonic water level (non-ML contextual modifier)
-function getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLevelTrend) {
+function getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLevelTrend, waterLevelThresholds = null) {
   const [temperature] = values;
   const hasSubOptimal = perSensorClasses.some((c) => c === 0 || c === 1);
+  const { low: lowCm, critical: criticalCm } = resolveWaterLevelThresholds(waterLevelThresholds);
 
   const hasValidLevel = typeof waterLevel === "number" && Number.isFinite(waterLevel) && waterLevel > 0;
-  const isCriticallyShallow = hasValidLevel && waterLevel < CRITICAL_SHALLOW_DEPTH_CM;
-  const isLowShallow = hasValidLevel && !isCriticallyShallow && waterLevel < LOW_SHALLOW_DEPTH_CM;
+  const isCriticallyShallow = hasValidLevel && waterLevel <= criticalCm;
+  const isLowShallow = hasValidLevel && !isCriticallyShallow && waterLevel <= lowCm;
 
   const wlFalling = waterLevelTrend && typeof waterLevelTrend === "object" && waterLevelTrend.direction === "falling";
   const wlRising = waterLevelTrend && typeof waterLevelTrend === "object" && waterLevelTrend.direction === "rising";
@@ -237,7 +257,7 @@ function getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLev
     if (hasSubOptimal) {
       return `In addition, water level has dropped by ${dropCm} cm, concentrating dissolved compounds and waste in a smaller water volume.`;
     }
-    return `Note that water level has gradually dropped by ${dropCm} cm due to evaporation, which can reduce thermal stability if not topped up.`;
+    return `Note that water level has dropped by ${dropCm} cm, which can reduce thermal stability if it continues to decline.`;
   }
 
   if (wlRising && hasSubOptimal) {
@@ -354,6 +374,19 @@ function buildTrendNote(values, perSensorClasses, sensorTrends, isGoodResult) {
   return "All monitored parameters are currently holding steady without further rapid deterioration, though corrective action is still needed.";
 }
 
+function formatTrendLead(trendNote) {
+  if (!trendNote) return "";
+  const trimmed = trendNote.trim();
+  if (trimmed.startsWith("In recent trends") || trimmed.startsWith("Recent trend")) {
+    return trimmed.endsWith(".") ? trimmed : `${trimmed}.`;
+  }
+  let lower = trimmed;
+  if (!trimmed.startsWith("DO") && !trimmed.startsWith("pH")) {
+    lower = trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+  }
+  return `In recent trends, ${lower}${lower.endsWith(".") ? "" : "."}`;
+}
+
 // Fallback helper for legacy simple trend formatting if imported elsewhere
 function buildSimpleTrendNote(sensorTrends) {
   if (!sensorTrends) return "";
@@ -386,7 +419,8 @@ function insightFor(
   perSensorClasses,
   sensorTrends,
   waterLevel = null,
-  waterLevelTrend = null
+  waterLevelTrend = null,
+  waterLevelThresholds = null
 ) {
   const [temperature, ph, doValue, turbidity] = values;
   const mlLabel = CLASS_NAMES[prediction];
@@ -599,23 +633,33 @@ function insightFor(
     }
   }
 
-  const waterLevelNote = getWaterLevelInsightNote(values, perSensorClasses, waterLevel, waterLevelTrend);
+  const waterLevelNote = getWaterLevelInsightNote(
+    values,
+    perSensorClasses,
+    waterLevel,
+    waterLevelTrend,
+    waterLevelThresholds
+  );
   if (waterLevelNote) {
     sentences.push(waterLevelNote);
   }
 
-  let text = sentences.join(" ");
-
   const isGoodResult = prediction === 2 && rangeClass === 2;
   const trendNote = buildTrendNote(values, perSensorClasses, sensorTrends, isGoodResult);
+
+  let text = "";
   if (trendNote) {
-    text += `\n\nRecent Trend: ${trendNote}`;
+    const trendLead = formatTrendLead(trendNote);
+    text = `${trendLead}\n\n${sentences.join(" ")}`;
+  } else {
+    text = sentences.join(" ");
   }
 
-  return text;
+  return text.trim();
 }
 
 module.exports = {
   insightFor,
   buildSimpleTrendNote,
+  resolveWaterLevelThresholds,
 };

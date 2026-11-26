@@ -8,6 +8,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
+import '../utils/feeding_progress.dart';
+import 'feeder_service.dart';
 import 'tank_service.dart';
 
 /// Selects the detailed grow-out record sections included in an export.
@@ -15,27 +17,31 @@ class GrowOutReportSections {
   final bool includeSampling;
   final bool includeMortality;
   final bool includeHarvest;
+  final bool includeFeedIntake;
 
   const GrowOutReportSections({
     this.includeSampling = true,
     this.includeMortality = true,
     this.includeHarvest = true,
+    this.includeFeedIntake = true,
   });
 
   bool get hasSelectedSection =>
-      includeSampling || includeMortality || includeHarvest;
+      includeSampling || includeMortality || includeHarvest || includeFeedIntake;
 
   String get selectedSectionsLabel =>
       [
         if (includeSampling) 'Sampling Records',
         if (includeMortality) 'Mortality Records',
         if (includeHarvest) 'Harvest Records',
+        if (includeFeedIntake) 'Feed Intake Records',
       ].join(', ').isEmpty
       ? 'Batch Summary only'
       : [
           if (includeSampling) 'Sampling Records',
           if (includeMortality) 'Mortality Records',
           if (includeHarvest) 'Harvest Records',
+          if (includeFeedIntake) 'Feed Intake Records',
         ].join(', ');
 }
 
@@ -180,6 +186,67 @@ class ReportExportService {
     return '${samplingPeriod(entry, stockingDate)} · ${_fmtDate(entry.date)}';
   }
 
+  static ({List<List<String>> rows, double totalGrams}) feedIntakeSummaryForPeriod(
+    DateTime? stockingDate,
+    DateTime? periodEnd,
+  ) => _feedIntakeSummaryForPeriod(stockingDate, periodEnd);
+
+  static ({List<List<String>> rows, double totalGrams}) _feedIntakeSummaryForPeriod(
+    DateTime? stockingDate,
+    DateTime? periodEnd,
+  ) {
+    final batchStart = stockingDate == null ? null : feedingManilaDate(stockingDate);
+    final batchEndExclusive = periodEnd == null
+        ? null
+        : feedingManilaDate(periodEnd).add(const Duration(days: 1));
+
+    final byDay = <DateTime, ({double autoG, double manualG, int count})>{};
+    var totalGrams = 0.0;
+
+    for (final log in FeederService.instance.logs) {
+      final status = (log.status ?? '').toLowerCase();
+      if (status != 'completed' && status != 'forced') continue;
+      if (log.timestamp <= 0) continue;
+
+      final grams = log.estimatedDispensedGrams ?? log.requestedGrams ?? 0.0;
+      if (!grams.isFinite || grams <= 0) continue;
+
+      final instant = DateTime.fromMillisecondsSinceEpoch(
+        log.timestamp,
+        isUtc: true,
+      );
+      final day = feedingManilaDate(instant);
+      if (batchStart != null && day.isBefore(batchStart)) continue;
+      if (batchEndExclusive != null && !day.isBefore(batchEndExclusive)) {
+        continue;
+      }
+
+      final isAuto = log.type.toLowerCase() == 'auto';
+      final prev = byDay[day] ?? (autoG: 0.0, manualG: 0.0, count: 0);
+      byDay[day] = (
+        autoG: prev.autoG + (isAuto ? grams : 0.0),
+        manualG: prev.manualG + (isAuto ? 0.0 : grams),
+        count: prev.count + 1,
+      );
+      totalGrams += grams;
+    }
+
+    final days = byDay.keys.toList()..sort();
+    final rows = days.map((day) {
+      final entry = byDay[day]!;
+      final total = entry.autoG + entry.manualG;
+      return <String>[
+        _fmtDate(day),
+        entry.autoG.toStringAsFixed(0),
+        entry.manualG.toStringAsFixed(0),
+        total.toStringAsFixed(0),
+        entry.count.toString(),
+      ];
+    }).toList();
+
+    return (rows: rows, totalGrams: totalGrams);
+  }
+
   String buildGrowthCsv({
     GrowOutReportSections sections = const GrowOutReportSections(),
     bool includeIndividualMeasurements = true,
@@ -250,6 +317,28 @@ class ReportExportService {
       for (final m in mortality) {
         buf.writeln(_row([_fmtDate(m.date), m.count]));
       }
+      buf.writeln();
+    }
+
+    final feedIntake = _feedIntakeSummaryForPeriod(
+      t.stockingDate,
+      _culturePeriodEnd(t),
+    );
+    if (sections.includeFeedIntake && feedIntake.rows.isNotEmpty) {
+      buf.writeln(_row(['Feed Intake Records']));
+      buf.writeln(
+        _row([
+          'Date',
+          'Scheduled (g)',
+          'Manual (g)',
+          'Total Feed (g)',
+          'Feedings',
+        ]),
+      );
+      for (final r in feedIntake.rows) {
+        buf.writeln(_row(r));
+      }
+      buf.writeln(_row(['Total Feed Dispensed (g)', feedIntake.totalGrams.toStringAsFixed(0)]));
       buf.writeln();
     }
 
@@ -460,6 +549,28 @@ class ReportExportService {
               entry.abwGrams.toStringAsFixed(2),
             ]),
           );
+        }
+      }
+      if (sections.includeFeedIntake) {
+        final batchFeedIntake = _feedIntakeSummaryForPeriod(
+          batch.stockingDate,
+          _snapshotPeriodEnd(snapshot),
+        );
+        if (batchFeedIntake.rows.isNotEmpty) {
+          buf.writeln(_row(['Feed Intake Records']));
+          buf.writeln(
+            _row([
+              'Date',
+              'Scheduled (g)',
+              'Manual (g)',
+              'Total Feed (g)',
+              'Feedings',
+            ]),
+          );
+          for (final r in batchFeedIntake.rows) {
+            buf.writeln(_row(r));
+          }
+          buf.writeln(_row(['Total Feed Dispensed (g)', batchFeedIntake.totalGrams.toStringAsFixed(0)]));
         }
       }
       buf.writeln();
@@ -772,6 +883,37 @@ class ReportExportService {
           _appendExcelRow(sheet, ['No harvest records.']);
         }
       }
+
+      if (sections.includeFeedIntake) {
+        final feedIntake = _feedIntakeSummaryForPeriod(
+          batch.stockingDate,
+          _snapshotPeriodEnd(snapshot),
+        );
+        _appendExcelRow(sheet, ['']);
+        _appendExcelLabelRow(sheet, 'Feed Intake Records', _excelSectionStyle);
+        if (feedIntake.rows.isEmpty) {
+          _appendExcelRow(sheet, ['No feed intake records.']);
+        } else {
+          _appendExcelTable(
+            sheet,
+            headers: const [
+              'Date',
+              'Scheduled (g)',
+              'Manual (g)',
+              'Total Feed (g)',
+              'Feedings',
+            ],
+            rows: feedIntake.rows,
+          );
+          _appendExcelRow(sheet, [
+            'Total Feed Dispensed (g)',
+            '',
+            '',
+            feedIntake.totalGrams.toStringAsFixed(0),
+            '',
+          ]);
+        }
+      }
     }
 
     final bytes = workbook.encode();
@@ -805,6 +947,10 @@ class ReportExportService {
     final samples = t.samplingHistory;
     final mortality = t.mortalityHistory;
     final harvests = t.harvestRecords;
+    final feedIntake = _feedIntakeSummaryForPeriod(
+      t.stockingDate,
+      _culturePeriodEnd(t),
+    );
     final culturePeriod = _dateRange(t.stockingDate, _culturePeriodEnd(t));
     final samplingPeriod = _samplingPeriod(samples);
 
@@ -986,6 +1132,40 @@ class ReportExportService {
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
               data: harvestRows,
             ),
+          if (sections.includeFeedIntake) pw.SizedBox(height: 20),
+          if (sections.includeFeedIntake)
+            pw.Text(
+              'Feed Intake Records (Total: ${feedIntake.totalGrams.toStringAsFixed(0)} g)',
+              style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: _crayColor,
+              ),
+            ),
+          if (sections.includeFeedIntake) pw.SizedBox(height: 8),
+          if (sections.includeFeedIntake && feedIntake.rows.isEmpty)
+            pw.Text(
+              'No feed intake records.',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+            )
+          else if (sections.includeFeedIntake)
+            pw.TableHelper.fromTextArray(
+              headers: [
+                'Date',
+                'Scheduled (g)',
+                'Manual (g)',
+                'Total Feed (g)',
+                'Feedings',
+              ],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: const pw.BoxDecoration(color: _careColor),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              data: feedIntake.rows,
+            ),
         ],
       ),
     );
@@ -1128,6 +1308,10 @@ class ReportExportService {
             ],
           )
           .toList();
+      final feedIntake = _feedIntakeSummaryForPeriod(
+        batch.stockingDate,
+        _snapshotPeriodEnd(snapshot),
+      );
 
       doc.addPage(
         pw.MultiPage(
@@ -1277,6 +1461,32 @@ class ReportExportService {
                   'ABW (g)',
                 ],
                 rows: harvestRows,
+                fontSize: 9,
+              ),
+            if (sections.includeFeedIntake) pw.SizedBox(height: 20),
+            if (sections.includeFeedIntake)
+              sectionTitle(
+                'Feed Intake Records (Total: ${feedIntake.totalGrams.toStringAsFixed(0)} g)',
+              ),
+            if (sections.includeFeedIntake) pw.SizedBox(height: 8),
+            if (sections.includeFeedIntake && feedIntake.rows.isEmpty)
+              pw.Text(
+                'No feed intake records.',
+                style: const pw.TextStyle(
+                  fontSize: 9,
+                  color: PdfColors.grey600,
+                ),
+              )
+            else if (sections.includeFeedIntake)
+              table(
+                headers: const [
+                  'Date',
+                  'Scheduled (g)',
+                  'Manual (g)',
+                  'Total Feed (g)',
+                  'Feedings',
+                ],
+                rows: feedIntake.rows,
                 fontSize: 9,
               ),
           ],

@@ -46,12 +46,27 @@ class FeedingProgress {
   /// not trapped by a 0.3 g remainder that cannot be dispensed as a whole gram.
   bool get isDone => remainingGrams < 1;
 
+  /// True when the full daily ration (AM + PM combined) has been dispensed.
+  /// This caps manual Feed Now even when the other slot is still open,
+  /// preventing overfeeding that degrades water quality.
+  double get totalDailyDispensed => morningDispensedGrams + eveningDispensedGrams;
+
+  double get dailyRecommendedGrams => recommendedGrams * 2;
+
+  bool get isDailyCapReached =>
+      recommendedGrams > 0 && totalDailyDispensed >= dailyRecommendedGrams - 1;
+
   String get slotLabel => slot == FeedingSlot.morning ? 'AM' : 'PM';
 
   String get slotName => slot == FeedingSlot.morning ? 'morning' : 'afternoon';
 
   String get progressNote {
     if (recommendedGrams <= 0) return 'No recommendation available.';
+    if (isDailyCapReached) {
+      return 'Daily feeding target reached (${totalDailyDispensed.round()}/'
+          '${dailyRecommendedGrams.round()} g). Dispense is locked to prevent '
+          'overfeeding and protect water quality.';
+    }
     if (isDone) {
       final next = slot == FeedingSlot.morning ? 'PM' : 'AM';
       return 'Already fed $slotName: ${dispensedGrams.round()}/'

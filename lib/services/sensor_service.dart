@@ -864,6 +864,15 @@ class SensorService extends ChangeNotifier {
     _dayCachedAt.clear();
   }
 
+  void invalidateTodayCache() {
+    final tankId = _tankId;
+    if (tankId == null || tankId.isEmpty) return;
+    final todayKey = _dateStrFor(DateTime.now());
+    final memoryKey = _memoryHistoryDayKey(tankId, todayKey);
+    _dayCache.remove(memoryKey);
+    _dayCachedAt.remove(memoryKey);
+  }
+
   DateTime? _dateFromKey(String dateStr) {
     final parts = dateStr.split('-');
     if (parts.length != 3) return null;

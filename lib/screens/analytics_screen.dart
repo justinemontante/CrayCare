@@ -15,7 +15,8 @@ class AnalyticsScreen extends StatefulWidget {
   AnalyticsScreenState createState() => AnalyticsScreenState();
 }
 
-class AnalyticsScreenState extends State<AnalyticsScreen> {
+class AnalyticsScreenState extends State<AnalyticsScreen>
+    with WidgetsBindingObserver {
   String _activeFilter = 'live';
   bool _showCustom = false;
   bool _isApplyPressed = false;
@@ -43,7 +44,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   final ValueNotifier<int> _liveRefresh = ValueNotifier<int>(0);
   bool _isTabActive = false;
 
-  bool get _showCritical => _activeFilter != 'live' && _activeFilter == '24h';
+  bool get _showCritical => false;
 
   bool get _activeRangeIncludesToday {
     if (_activeFilter == '24h' ||
@@ -167,6 +168,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
         historyStart: today,
         records: const [],
       );
+      unawaited(_reloadActiveHistory(range));
     });
   }
 
@@ -243,6 +245,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _chartCardKeys = {
       'temp': GlobalKey(),
       'ph': GlobalKey(),
@@ -260,6 +263,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopHistoryTailListener();
     _liveTimer?.cancel();
     _liveRefresh.dispose();
@@ -267,6 +271,25 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     SettingsService.instance.removeListener(_onSettingsChanged);
     SensorService.instance.removeListener(_onSensorChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted || !_isTabActive) return;
+    if (state == AppLifecycleState.resumed) {
+      if (_activeFilter == 'live') {
+        _generateLive();
+        _startLiveTimer();
+      } else {
+        _stopHistoryTailListener();
+        SensorService.instance.invalidateTodayCache();
+        unawaited(_reloadActiveHistory(_activeFilter));
+      }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _liveTimer?.cancel();
+      _stopHistoryTailListener();
+    }
   }
 
   void _onSettingsChanged() {
@@ -1511,20 +1534,18 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
     final length = max(minData.length, maxData.length);
 
     if (_usesLowCriticalThreshold(chartKey)) {
-      final lowThreshold =
-          thresholds['low'] ?? (chartKey == 'feedlevel' ? 20.0 : 5.0);
       final criticalThreshold =
           thresholds['critical'] ?? (chartKey == 'feedlevel' ? 10.0 : 3.0);
       for (int i = 0; i < length; i++) {
         final value = i < minData.length && !minData[i].isNaN
             ? minData[i]
             : (i < maxData.length ? maxData[i] : double.nan);
-        if (!value.isNaN && value <= lowThreshold) {
+        if (!value.isNaN && value <= criticalThreshold) {
           items.add(
             _CriticalItem(
               value: value,
               label: i < labels.length ? labels[i] : '',
-              isAboveMax: value <= criticalThreshold,
+              isAboveMax: true,
             ),
           );
         }
@@ -1532,33 +1553,23 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       return items;
     }
 
-    final optMin = thresholds['min'] ?? double.negativeInfinity;
-    final optMax = thresholds['max'] ?? double.infinity;
-    final critLow = thresholds['criticalLow'] ?? double.negativeInfinity;
-    final critHigh = thresholds['criticalHigh'] ?? double.infinity;
+    final critLow = thresholds['criticalLow'] ?? thresholds['min'] ?? double.negativeInfinity;
+    final critHigh = thresholds['criticalHigh'] ?? thresholds['max'] ?? double.infinity;
 
     for (int i = 0; i < length; i++) {
       final label = i < labels.length ? labels[i] : '';
 
       if (i < minData.length) {
         final val = minData[i];
-        if (!val.isNaN) {
-          if (val < critLow) {
-            items.add(_CriticalItem(value: val, label: label, isAboveMax: true));
-          } else if (val < optMin) {
-            items.add(_CriticalItem(value: val, label: label, isAboveMax: false));
-          }
+        if (!val.isNaN && val < critLow) {
+          items.add(_CriticalItem(value: val, label: label, isAboveMax: false));
         }
       }
 
       if (i < maxData.length) {
         final val = maxData[i];
-        if (!val.isNaN) {
-          if (val >= critHigh) {
-            items.add(_CriticalItem(value: val, label: label, isAboveMax: true));
-          } else if (val > optMax) {
-            items.add(_CriticalItem(value: val, label: label, isAboveMax: false));
-          }
+        if (!val.isNaN && val >= critHigh) {
+          items.add(_CriticalItem(value: val, label: label, isAboveMax: true));
         }
       }
     }
@@ -1656,39 +1667,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ],
           ),
-          if (_showCritical) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 11,
-                  color: criticalCount > 0
-                      ? AppColors.critical
-                      : AppColors.success,
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    criticalCount > 0
-                        ? _usesLowCriticalThreshold(chartKey)
-                              ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}'
-                              : '$criticalCount poor/critical reading${criticalCount > 1 ? 's' : ''}'
-                        : 'No critical/poor readings',
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: criticalCount > 0
-                          ? AppColors.critical
-                          : AppColors.success,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -1788,7 +1766,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
       builder: (ctx) {
         bool closePressed = false;
         int? modalSelectedIndex;
-        bool modalShowCritical = false;
 
         return ListenableBuilder(
           listenable: Listenable.merge([
@@ -1835,16 +1812,6 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                 : '';
 
             final thresholds = _thresholdsFor(chartKey);
-            final criticalItems = _showCritical
-                ? _criticalItemsFor(
-                    chartKey: chartKey,
-                    labels: labels,
-                    minData: minData,
-                    maxData: maxData,
-                    thresholds: thresholds,
-                  )
-                : const <_CriticalItem>[];
-            final criticalCount = criticalItems.length;
             const curLabel = 'Selected period';
             double avg = 0.0;
             if (validData.isNotEmpty) {
@@ -1867,26 +1834,8 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                       children: [
                         Row(
                           children: [
-                            if (modalShowCritical)
-                              GestureDetector(
-                                onTap: () => setDialogState(
-                                  () => modalShowCritical = false,
-                                ),
-                                child: const Padding(
-                                  padding: EdgeInsets.only(right: 8),
-                                  child: Icon(
-                                    Icons.arrow_back,
-                                    size: 16,
-                                    color: AppColors.dark,
-                                  ),
-                                ),
-                              ),
                             Text(
-                              modalShowCritical
-                                  ? _usesLowCriticalThreshold(chartKey)
-                                        ? 'Low/Critical Readings'
-                                        : 'Critical Points'
-                                  : '$title ($unit)',
+                              '$title ($unit)',
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -1926,15 +1875,7 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                           ],
                         ),
                         const SizedBox(height: 10),
-                        if (modalShowCritical)
-                          _buildModalCriticalList(
-                            criticalItems,
-                            unit,
-                            chartKey: chartKey,
-                            dp: dp,
-                          )
-                        else ...[
-                          if (_activeFilter != 'live' && !hideFeedLevelStats)
+                        if (_activeFilter != 'live' && !hideFeedLevelStats)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -2014,47 +1955,9 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                                         ),
                                       ],
                                     ),
-                                  if (_showCritical) ...[
-                                    const SizedBox(height: 6),
-                                    GestureDetector(
-                                      onTap: criticalCount > 0
-                                          ? () => setDialogState(
-                                              () => modalShowCritical = true,
-                                            )
-                                          : null,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber_rounded,
-                                            size: 11,
-                                            color: criticalCount > 0
-                                                ? AppColors.critical
-                                                : AppColors.success,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            criticalCount > 0
-                                                ? _usesLowCriticalThreshold(
-                                                        chartKey,
-                                                      )
-                                                      ? '$criticalCount low/critical reading${criticalCount > 1 ? 's' : ''}  ›'
-                                                      : '$criticalCount poor/critical reading${criticalCount > 1 ? 's' : ''}  ›'
-                                                : 'No critical/poor readings',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w600,
-                                              color: criticalCount > 0
-                                                  ? AppColors.critical
-                                                  : AppColors.success,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
                           const SizedBox(height: 12),
                           if (hasValid && labels.isNotEmpty)
                             Container(
@@ -2144,118 +2047,16 @@ class AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                           ],
                         ],
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildModalCriticalList(
-    List<_CriticalItem> items,
-    String unit, {
-    required String chartKey,
-    int dp = 1,
-  }) {
-    return Container(
-      height: 220,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.critical.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.critical.withValues(alpha: 0.15)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.warning_amber_rounded,
-                size: 12,
-                color: AppColors.critical,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _usesLowCriticalThreshold(chartKey)
-                    ? 'Low/Critical Readings (${items.length})'
-                    : 'Poor/Critical Readings (${items.length})',
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.critical,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: items.reversed
-                    .map(
-                      (c) => Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: c.isAboveMax
-                                    ? AppColors.critical
-                                    : AppColors.warning,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              '${c.value.toStringAsFixed(dp)} $unit',
-                              style: const TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.dark,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              c.isAboveMax
-                                  ? (_usesLowCriticalThreshold(chartKey) ? '(Critical)' : '(Critical)')
-                                  : (_usesLowCriticalThreshold(chartKey) ? '(Low)' : '(Poor)'),
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w700,
-                                color: c.isAboveMax
-                                    ? AppColors.critical
-                                    : AppColors.warning,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              c.label,
-                              style: TextStyle(
-                                fontSize: 8,
-                                color: AppColors.darkWith(0.5),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      );
+    }
 }
 
 class _CriticalItem {

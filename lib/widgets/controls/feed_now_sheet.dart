@@ -75,6 +75,9 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
     if (rangeError != null) return rangeError;
 
     final progress = widget.progress;
+    if (progress != null && progress.isDailyCapReached) {
+      return 'Daily target reached (${progress.totalDailyDispensed.round()}/${progress.dailyRecommendedGrams.round()} g)';
+    }
     if (progress != null && grams > progress.dispensableGrams) {
       return 'Only ${progress.dispensableGrams.round()} g remaining';
     }
@@ -99,8 +102,9 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
     final progress = widget.progress;
     final grams = _grams;
     final error = _validationError(grams);
+    final isDailyCapped = progress?.isDailyCapReached ?? false;
     final canSubmit =
-        grams != null && error == null && !(progress?.isDone ?? false);
+        grams != null && error == null && !(progress?.isDone ?? false) && !isDailyCapped;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -181,7 +185,7 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
                 signed: false,
               ),
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              enabled: !(progress?.isDone ?? false),
+              enabled: !(progress?.isDone ?? false) && !(progress?.isDailyCapReached ?? false),
               onChanged: (_) => setState(() {}),
               style: const TextStyle(
                 fontSize: 14,
@@ -248,6 +252,45 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
               ),
             ),
             const SizedBox(height: 22),
+            if (isDailyCapped) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.warningDark.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppColors.warningDark.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 14,
+                      color: AppColors.warningDark,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Daily feeding target reached '
+                        '(${progress!.totalDailyDispensed.round()}/'
+                        '${progress.dailyRecommendedGrams.round()} g). '
+                        'Dispense is locked to prevent overfeeding and protect water quality.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.4,
+                          color: AppColors.warningDark,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -269,7 +312,9 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
                   ),
                 ),
                 child: Text(
-                  progress?.isDone == true
+                  isDailyCapped
+                      ? 'Daily target reached — dispense locked'
+                      : progress?.isDone == true
                       ? '${progress?.slotLabel ?? 'Slot'} feeding complete'
                       : grams != null && error == null
                       ? 'Dispense ${grams.round()} g'
@@ -375,7 +420,7 @@ class _FeedNowSheetState extends State<FeedNowSheet> {
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.3,
-                  color: active ? AppColors.primary : AppColors.subtitleText,
+                  color: AppColors.primary,
                 ),
               ),
               const SizedBox(width: 5),

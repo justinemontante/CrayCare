@@ -876,8 +876,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         keyboardType:
                                             const TextInputType.numberWithOptions(
                                               decimal: true,
-                                              signed: true,
+                                              signed: false,
                                             ),
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.allow(
+                                            RegExp(r'^\d*\.?\d*$'),
+                                          ),
+                                        ],
                                         onChanged: (_) => revalidate(),
                                         decoration: InputDecoration(
                                           hintText: '0.0',
@@ -916,8 +921,13 @@ class ProductionScreenState extends State<ProductionScreen> {
                                         keyboardType:
                                             const TextInputType.numberWithOptions(
                                               decimal: true,
-                                              signed: true,
+                                              signed: false,
                                             ),
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.allow(
+                                            RegExp(r'^\d*\.?\d*$'),
+                                          ),
+                                        ],
                                         onChanged: (_) => revalidate(),
                                         decoration: InputDecoration(
                                           hintText: '0.0',
@@ -1232,12 +1242,9 @@ class ProductionScreenState extends State<ProductionScreen> {
                 child: TextField(
                   controller: controller,
                   onChanged: (_) => onChanged?.call(),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                    signed: true,
-                  ),
+                  keyboardType: TextInputType.number,
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*$')),
+                    FilteringTextInputFormatter.digitsOnly,
                   ],
                   textAlign: TextAlign.center,
                   style: TextStyle(

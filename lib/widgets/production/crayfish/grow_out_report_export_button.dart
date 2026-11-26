@@ -119,6 +119,7 @@ class GrowOutReportExportButton extends StatelessWidget {
     var includeSampling = true;
     var includeMortality = true;
     var includeHarvest = true;
+    var includeFeedIntake = true;
     var includeSummary = true;
     var includeIndividualMeasurements = true;
     var fileName = 'craycare_all_batches';
@@ -141,7 +142,8 @@ class GrowOutReportExportButton extends StatelessWidget {
               includeSummary ||
               includeSampling ||
               includeMortality ||
-              includeHarvest;
+              includeHarvest ||
+              includeFeedIntake;
           final allSelected = selectedBatchIds.length == batches.length;
           return SafeArea(
             top: false,
@@ -347,6 +349,17 @@ class GrowOutReportExportButton extends StatelessWidget {
                             () => includeHarvest = value ?? false,
                           ),
                         ),
+                        CheckboxListTile(
+                          value: includeFeedIntake,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Feed Intake Records'),
+                          subtitle: const Text(
+                            'Daily auto and manual feed dispensed per day.',
+                          ),
+                          onChanged: (value) => setSheetState(
+                            () => includeFeedIntake = value ?? false,
+                          ),
+                        ),
                         if (canIncludeIndividualMeasurements)
                           CheckboxListTile(
                             value: includeIndividualMeasurements,
@@ -420,6 +433,7 @@ class GrowOutReportExportButton extends StatelessWidget {
                                         includeSampling: includeSampling,
                                         includeMortality: includeMortality,
                                         includeHarvest: includeHarvest,
+                                        includeFeedIntake: includeFeedIntake,
                                       ),
                                     ),
                                   )
@@ -560,6 +574,13 @@ class GrowOutReportExportButton extends StatelessWidget {
     );
     final individualEntries = List.of(snapshot.sampling)
       ..sort((a, b) => a.date.compareTo(b.date));
+    final periodEnd = batch.status == 'active'
+        ? DateTime.now()
+        : (batch.endedAt ?? batch.harvestDate ?? DateTime.now());
+    final feedIntake = ReportExportService.feedIntakeSummaryForPeriod(
+      batch.stockingDate,
+      periodEnd,
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -673,6 +694,13 @@ class GrowOutReportExportButton extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 'Harvest records: ${snapshot.harvests.length} · $harvested crayfish',
+                style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.68)),
+              ),
+            ],
+            if (selection.sections.includeFeedIntake) ...[
+              const SizedBox(height: 5),
+              Text(
+                'Feed intake records: ${feedIntake.rows.length} day(s) · ${feedIntake.totalGrams.toStringAsFixed(0)} g total',
                 style: TextStyle(fontSize: 11, color: AppColors.darkWith(0.68)),
               ),
             ],
