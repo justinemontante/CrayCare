@@ -65,6 +65,7 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             setFlutterAsset(views, context, R.id.widget_do_icon, "assets/images/DO.png", 22)
             setFlutterAsset(views, context, R.id.widget_turb_icon, "assets/images/Turbidity.png", 22)
             setFlutterAsset(views, context, R.id.widget_water_icon, "assets/images/waterLevel.png", 22)
+            setFlutterAsset(views, context, R.id.widget_feedlevel_icon, "assets/images/FeedingImage.png", 22)
             setFlutterAsset(views, context, R.id.widget_feed_icon, "assets/images/FeedingImage.png", 24)
 
             views.setTextViewText(
@@ -95,6 +96,7 @@ class CrayCareWidgetProvider : AppWidgetProvider() {
             setSensor(views, prefs, "dissolved_oxygen", R.id.widget_do_value, R.id.widget_do_status)
             setSensor(views, prefs, "turbidity", R.id.widget_turb_value, R.id.widget_turb_status)
             setSensor(views, prefs, "water_level", R.id.widget_water_value, R.id.widget_water_status)
+            setSensor(views, prefs, "feedlevel", R.id.widget_feedlevel_value, R.id.widget_feedlevel_status)
 
             val feederStatus = prefs.getString("widget_feeder_status", "OFFLINE") ?: "OFFLINE"
             views.setTextViewText(R.id.widget_feeder_status, feederStatus)

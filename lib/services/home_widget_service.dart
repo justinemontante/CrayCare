@@ -97,6 +97,7 @@ class HomeWidgetService {
     _writeSensor(snapshot, 'do', 'dissolved_oxygen', 'mg/L', decimals: 1);
     _writeSensor(snapshot, 'turb', 'turbidity', 'NTU', decimals: 1);
     _writeSensor(snapshot, 'waterlevel', 'water_level', 'cm', decimals: 1);
+    _writeSensor(snapshot, 'feedlevel', 'feedlevel', '%', decimals: 0);
 
     final now = manilaWallClock();
     final feeder = FeederService.instance;
