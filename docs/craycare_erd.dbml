@@ -46,8 +46,8 @@ Table tanks [note: 'Persisted at tanks/{tankId}; tankId is the owner Firebase Au
   created_at timestamp [not null]
 }
 
-Table hardware_assignments [note: 'Firestore keeps a singleton hardware_system/currentOwner document (fields: uid, tank_id, assigned_by, assigned_at); uid and tank_id are null when unassigned'] {
-  assignment_id varchar [pk, note: 'Conceptual key only; actual fixed Firestore document ID is hardware_system/currentOwner']
+Table hardware_system [note: 'Firestore keeps a singleton hardware_system/currentOwner document (fields: uid, tank_id, assigned_by, assigned_at); uid and tank_id are null when unassigned'] {
+  hardware_id varchar [pk, note: 'Conceptual key only; actual fixed Firestore document ID is hardware_system/currentOwner']
   uid varchar [ref: > users.uid, note: 'Stored on hardware_system/currentOwner; null when unassigned']
   tank_id varchar [unique, ref: - tanks.tank_id, note: 'Stored on hardware_system/currentOwner; null when unassigned']
   assigned_by varchar [not null, ref: > users.uid]
@@ -230,7 +230,7 @@ Table water_quality_classification_history [note: 'Persisted at tanks/{tankId}/w
   sensor_trends text [note: 'JSON map storing rolling direction, zone, and lifecycle state per sensor']
   source_recorded_at timestamp [note: 'Sensor capture timestamp']
   source_reading_path varchar [not null, note: 'Path to originating raw sensor history record']
-  model_version varchar [not null, note: 'wqc-rf-v4']
+  model_version varchar [not null, note: 'wqc-rf-v5-3class']
   created_at timestamp [not null]
   Indexes {
     (tank_id, date_key, entry_id) [pk]

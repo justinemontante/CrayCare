@@ -374,16 +374,6 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      match /water_quality_anomaly_detections/{docId} {
-        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-        allow create, update, delete: if false;
-      }
-
-      match /water_quality_anomaly_detection_history/{detectionId} {
-        allow read: if isTankOwner(tankId) || canAccessOwnCanonicalTank(tankId);
-        allow create, update, delete: if false;
-      }
-
       // Classification outputs are written only by the trusted backend.
       // The owner may read the current result and date-grouped history;
       // client and ESP writes are denied.
